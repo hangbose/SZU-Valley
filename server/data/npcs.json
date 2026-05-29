@@ -1,0 +1,98 @@
+[
+  {
+    "id": "npc_librarian",
+    "name": "图书馆管理员",
+    "avatar": "npc_librarian",
+    "x": 60,
+    "y": 30,
+    "description": "在南馆门口徘徊，看起来很喜欢跟学生聊天"
+  },
+  {
+    "id": "npc_lawn_poet",
+    "name": "草地诗人",
+    "avatar": "npc_poet",
+    "x": 90,
+    "y": 55,
+    "description": "总在文山湖边的草地上坐着，据说会即兴作诗"
+  },
+  {
+    "id": "npc_canteen_aunt",
+    "name": "食堂阿姨",
+    "avatar": "npc_aunt",
+    "x": 50,
+    "y": 75,
+    "description": "站在荔园食堂门口，手里拿着勺子，热情招呼路过的同学"
+  },
+  {
+    "id": "npc_security",
+    "name": "门卫大叔",
+    "avatar": "npc_security",
+    "x": 20,
+    "y": 20,
+    "description": "在学校正门保安亭里，对每个路过的人都点头微笑"
+  },
+  {
+    "id": "npc_sci_tech_guy",
+    "name": "科技楼学长",
+    "avatar": "npc_tech_guy",
+    "x": 120,
+    "y": 40,
+    "description": "在科技楼门口调试无人机，看起来很酷"
+  },
+  {
+    "id": "npc_gym_coach",
+    "name": "体育馆教练",
+    "avatar": "npc_coach",
+    "x": 140,
+    "y": 90,
+    "description": "在体育馆外面拉伸，动不动就喊人一起跑步"
+  },
+  {
+    "id": "npc_dorm_cat",
+    "name": "宿舍楼猫",
+    "avatar": "npc_cat",
+    "x": 160,
+    "y": 60,
+    "description": "一只橘猫，躺在宿舍楼下的台阶上晒太阳，谁都不理"
+  },
+  {
+    "id": "npc_coffee_owner",
+    "name": "咖啡店老板",
+    "avatar": "npc_barista",
+    "x": 100,
+    "y": 70,
+    "description": "在学生活动中心旁边开了家小咖啡店，据说以前也是深大学生"
+  },
+  {
+    "id": "npc_tree_grandpa",
+    "name": "大树下大爷",
+    "avatar": "npc_grandpa",
+    "x": 70,
+    "y": 100,
+    "description": "每天下午都在荔枝林的大树下下象棋，有时候一个人跟自己下"
+  },
+  {
+    "id": "npc_freshman",
+    "name": "新生小白",
+    "avatar": "npc_freshman",
+    "x": 30,
+    "y": 50,
+    "description": "一个看起来迷路了的新生，手里拿着纸质地图转来转去"
+  },
+  {
+    "id": "npc_bike_repair",
+    "name": "修车师傅",
+    "avatar": "npc_repair",
+    "x": 110,
+    "y": 110,
+    "description": "在自行车棚旁边摆了个摊，工具摆得整整齐齐"
+  },
+  {
+    "id": "npc_art_student",
+    "name": "写生女孩",
+    "avatar": "npc_artist",
+    "x": 80,
+    "y": 45,
+    "description": "在文山湖边架着画板，画对面科技楼的倒影"
+  }
+]
