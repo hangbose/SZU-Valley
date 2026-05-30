@@ -38,7 +38,17 @@
 
 ---
 
-## IB-004 · 好友高亮 · Friend Highlight on Map
+## IB-004 · 玩家标签编辑 · Profile Tag Editing
+
+**当前**: ProfileCard 显示标签（`tags` 字段），但没有 UI 让玩家设置/编辑自己的标签。服务器 `store.setTags` 方法已有但未接线。
+
+**计划**: 
+- 客户端：打开自己资料卡时有"编辑标签"按钮，支持 1-4 个短标签（如"前端""找队友"）
+- 服务端：新增 `profile.setTags` socket 事件，调用已有 `store.setTags`
+
+---
+
+## IB-005 · 好友高亮 · Friend Highlight on Map
 
 **当前**: 好友在地图上与其他玩家显示相同。
 
