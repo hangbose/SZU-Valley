@@ -16,6 +16,7 @@
 import type { Socket } from "socket.io";
 import { ZoneManager, getZoneNeighbors, zoneRoom } from "../zone-manager.js";
 import type { RedisClient } from "../redis.js";
+import type { DataStore } from "../db/store.js";
 import { validateMove } from "../game/position-validator.js";
 import { getNPCsInZones } from "./npc.js";
 import { MOVE_THROTTLE_MS } from "../types.js";
@@ -33,6 +34,7 @@ export function handleMovement(
   data: MoveData,
   zoneManager: ZoneManager,
   redis: RedisClient,
+  store: DataStore,
   npcs: NPC[]
 ): void {
   const now = Date.now();
@@ -128,7 +130,7 @@ export function handleMovement(
     }
 
     // 给移动者本人发送新区域的快照（含 NPC 列表！）
-    sendZoneSnapshot(socket, newNeighbors, zoneManager, playerId, npcs);
+    sendZoneSnapshot(socket, newNeighbors, zoneManager, playerId, store, npcs);
 
     // 广播 player.moved 到新区域
     socket.volatile
@@ -152,6 +154,7 @@ export function sendZoneSnapshot(
   neighborZones: number[],
   zoneManager: ZoneManager,
   playerId: string,
+  store?: DataStore,
   npcs?: NPC[]
 ): void {
   // 收集附近玩家（排除自己）
@@ -170,7 +173,7 @@ export function sendZoneSnapshot(
       y: p.y,
       direction: p.direction,
       moving: p.moving,
-      isFriend: false, // A2 负责填充
+      isFriend: store ? store.isFriend(playerId, p.id) : false,
     }));
 
   socket.emit("zone.players", { players: others });
