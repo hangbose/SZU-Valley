@@ -42,7 +42,10 @@ export interface GameState {
   playerId: string | null;
   playerName: string;
   playerAvatar: string;
+  spawnX: number;
+  spawnY: number;
   setPlayer: (id: string, name: string, avatar: string) => void;
+  setSpawn: (x: number, y: number) => void;
 
   // --- World ---
   onlineCount: number;
@@ -94,8 +97,11 @@ export const useGameStore = create<GameState>((set) => ({
   playerId: null,
   playerName: "",
   playerAvatar: "",
+  spawnX: 0,
+  spawnY: 0,
   setPlayer: (id, name, avatar) =>
     set({ playerId: id, playerName: name, playerAvatar: avatar }),
+  setSpawn: (x, y) => set({ spawnX: x, spawnY: y }),
 
   // World
   onlineCount: 0,

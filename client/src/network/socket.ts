@@ -40,6 +40,25 @@ export function connect(): Socket {
 export function disconnect(): void {
   socket?.disconnect();
   socket = null;
+  zoneBuffer = null;
+}
+
+// ---------------------------------------------------------------------------
+// Zone data buffer (catches zone.players / zone.npcs before GameScene starts)
+// ---------------------------------------------------------------------------
+
+interface ZoneBuffer {
+  players: Array<{ id: string; name: string; avatar: string; x: number; y: number }>;
+  npcs: Array<{ id: string; name: string; avatar: string; x: number; y: number; description: string }>;
+}
+
+let zoneBuffer: ZoneBuffer | null = null;
+
+/** Read and clear the buffered zone data. Called once by GameScene on start. */
+export function consumeZoneBuffer(): ZoneBuffer | null {
+  const data = zoneBuffer;
+  zoneBuffer = null;
+  return data;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,5 +78,21 @@ function wireConnectionEvents(s: Socket): void {
 
   s.on("connect_error", () => {
     store().setConnectionStatus("yellow");
+  });
+
+  // Buffer zone data so GameScene can read it on startup
+  // (zone.players / zone.npcs may arrive before GameScene is created)
+  s.on("zone.players", (data: {
+    players: Array<{ id: string; name: string; avatar: string; x: number; y: number }>;
+  }) => {
+    if (!zoneBuffer) zoneBuffer = { players: [], npcs: [] };
+    zoneBuffer.players = data?.players ?? [];
+  });
+
+  s.on("zone.npcs", (data: {
+    npcs: Array<{ id: string; name: string; avatar: string; x: number; y: number; description: string }>;
+  }) => {
+    if (!zoneBuffer) zoneBuffer = { players: [], npcs: [] };
+    zoneBuffer.npcs = data?.npcs ?? [];
   });
 }

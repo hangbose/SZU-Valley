@@ -53,7 +53,12 @@ export class TileMapManager {
     }
 
     // --- Layer 1: Ground (rendered, z=0) ---
-    const groundLayer = map.createLayer("ground", tileset, 0, 0);
+    const groundLayer = map.createLayer(
+      "ground",
+      tileset,
+      0,
+      0,
+    ) as Phaser.Tilemaps.TilemapLayer | null;
     if (!groundLayer) {
       throw new Error(`[TileMapManager] Layer "ground" not found.`);
     }
@@ -61,13 +66,23 @@ export class TileMapManager {
 
     // --- Layer 2: Decoration (rendered above ground, z=5) ---
     // Trees, flowers, benches — things that sit on top of the ground
-    const decorationLayer = map.createLayer("decoration", tileset, 0, 0);
+    const decorationLayer = map.createLayer(
+      "decoration",
+      tileset,
+      0,
+      0,
+    ) as Phaser.Tilemaps.TilemapLayer | null;
     if (decorationLayer) {
       decorationLayer.setDepth(5);
     }
 
     // --- Layer 3: Collision (invisible, z=999 so it's never rendered) ---
-    const collisionLayer = map.createLayer("collision", tileset, 0, 0);
+    const collisionLayer = map.createLayer(
+      "collision",
+      tileset,
+      0,
+      0,
+    ) as Phaser.Tilemaps.TilemapLayer | null;
     if (!collisionLayer) {
       throw new Error(`[TileMapManager] Layer "collision" not found.`);
     }

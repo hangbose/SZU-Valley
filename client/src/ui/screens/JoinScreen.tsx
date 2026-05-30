@@ -5,31 +5,70 @@
  * Validates name length (2–12 chars) and requires an avatar selection.
  */
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useGameStore } from "@/ui/store/gameStore";
+import { connect } from "@/network/socket";
 
 const AVATARS = Array.from({ length: 8 }, (_, i) => `avatar_${String(i + 1).padStart(2, "0")}`);
+
+const JOIN_TIMEOUT = 8000; // 8 秒超时
 
 export function JoinScreen() {
   const setPhase = useGameStore((s) => s.setPhase);
   const setPlayer = useGameStore((s) => s.setPlayer);
+  const setSpawn = useGameStore((s) => s.setSpawn);
   const [name, setName] = useState("");
   const [avatar, setAvatar] = useState(AVATARS[0]);
   const [error, setError] = useState("");
+  const [joining, setJoining] = useState(false);
 
   const isValid = name.trim().length >= 2 && name.trim().length <= 12;
 
-  const handleJoin = () => {
-    if (!isValid) {
-      setError("Name must be 2–12 characters.");
-      return;
-    }
+  const handleJoin = useCallback(() => {
+    if (!isValid || joining) return;
     setError("");
-    // Placeholder: real join will emit player.join via socket
-    // For now, transition directly to game phase.
-    setPlayer("local-" + crypto.randomUUID().slice(0, 8), name.trim(), avatar);
-    setPhase("game");
-  };
+    setJoining(true);
+
+    const socket = connect();
+    let done = false;
+
+    const cleanup = () => {
+      done = true;
+      socket.off("player.joined");
+      socket.off("error");
+    };
+
+    // Success: server assigned us an ID and spawn point
+    socket.on("player.joined", (data: { playerId: string; spawn: { x: number; y: number } }) => {
+      if (done) return;
+      cleanup();
+
+      setPlayer(data.playerId, name.trim(), avatar);
+      setSpawn(data.spawn.x, data.spawn.y);
+      setPhase("game");
+    });
+
+    // Error: name taken, invalid, server full, etc.
+    socket.on("error", (err: { code?: string; message?: string }) => {
+      if (done) return;
+      cleanup();
+
+      const msg = err?.message ?? formatErrorCode(err?.code);
+      setError(msg);
+      setJoining(false);
+    });
+
+    // Timeout
+    setTimeout(() => {
+      if (done) return;
+      cleanup();
+      setError("连接服务器超时，请确认服务器已启动 · Server connection timed out");
+      setJoining(false);
+    }, JOIN_TIMEOUT);
+
+    // Fire!
+    socket.emit("player.join", { name: name.trim(), avatar });
+  }, [isValid, joining, name, avatar, setPlayer, setPhase]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && isValid) handleJoin();
@@ -84,12 +123,12 @@ export function JoinScreen() {
         <button
           style={{
             ...styles.joinBtn,
-            ...(!isValid ? styles.joinBtnDisabled : {}),
+            ...(!isValid || joining ? styles.joinBtnDisabled : {}),
           }}
-          disabled={!isValid}
+          disabled={!isValid || joining}
           onClick={handleJoin}
         >
-          Enter Campus
+          {joining ? "连接中… · Connecting…" : "Enter Campus"}
         </button>
 
         <p style={styles.hint}>No account needed — just pick a name and join.</p>
@@ -205,3 +244,20 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 0,
   },
 };
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatErrorCode(code?: string): string {
+  switch (code) {
+    case "NAME_TAKEN":
+      return "这个名字已被使用，换一个吧 · Name already taken";
+    case "INVALID_NAME":
+      return "名字需要 2–12 个字符 · Name must be 2–12 characters";
+    case "SERVER_FULL":
+      return "服务器已满，请稍后再试 · Server is full";
+    default:
+      return "连接失败，请重试 · Connection failed, try again";
+  }
+}

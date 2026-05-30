@@ -21,21 +21,13 @@ import type { LocalPlayer } from "@/game/entities/LocalPlayer";
 // ---------------------------------------------------------------------------
 
 /** Pixels per map tile on the minimap. */
-const MINIMAP_SCALE = 2;
+const MINIMAP_SCALE = 1;
 
 /** Minimap margin from the bottom-right corner of the screen (px). */
 const MARGIN = 10;
 
 /** How often to update dynamic elements (Hz). */
 const UPDATE_HZ = 5;
-
-/** Map dimensions (tiles). */
-const MAP_W = 80;
-const MAP_H = 60;
-
-/** Minimap pixel dimensions. */
-const MM_W = MAP_W * MINIMAP_SCALE; // 160
-const MM_H = MAP_H * MINIMAP_SCALE; // 120
 
 // ---------------------------------------------------------------------------
 // Terrain colour palette (tileset-local index → colour)
@@ -65,9 +57,8 @@ const DEFAULT_TILE_COLOR = 0x000000;
 export class HUDScene extends Phaser.Scene {
   private minimapX = 0;
   private minimapY = 0;
-
-  // Cached static tile texture
-  private terrainTexture: Phaser.GameObjects.Image | null = null;
+  private mmW = 160; // computed from map size
+  private mmH = 120;
 
   // Dynamic elements (redrawn each update)
   private dynamicGfx!: Phaser.GameObjects.Graphics;
@@ -87,26 +78,32 @@ export class HUDScene extends Phaser.Scene {
   // -----------------------------------------------------------------------
 
   create(): void {
-    const { width, height } = this.cameras.main;
-
-    // Position minimap at bottom-right
-    this.minimapX = width - MM_W - MARGIN;
-    this.minimapY = height - MM_H - MARGIN;
-
     // Read shared data from GameScene (via registry)
     this.tileMapManager = this.registry.get("tileMapManager") ?? null;
     this.localPlayer = this.registry.get("localPlayer") ?? null;
 
-    // --- Static terrain (rendered once to a texture) ---
+    // Compute minimap size from actual map dimensions
+    const mapW = this.tileMapManager?.map?.width ?? 80;
+    const mapH = this.tileMapManager?.map?.height ?? 60;
+    this.mmW = mapW * MINIMAP_SCALE;
+    this.mmH = mapH * MINIMAP_SCALE;
+
+    const { width, height } = this.cameras.main;
+
+    // Position minimap at bottom-right
+    this.minimapX = width - this.mmW - MARGIN;
+    this.minimapY = height - this.mmH - MARGIN;
+
+    // --- Static terrain (rendered once) ---
     this.renderTerrain();
 
     // --- Border ---
     this.add
       .rectangle(
-        this.minimapX + MM_W / 2,
-        this.minimapY + MM_H / 2,
-        MM_W + 2,
-        MM_H + 2,
+        this.minimapX + this.mmW / 2,
+        this.minimapY + this.mmH / 2,
+        this.mmW + 2,
+        this.mmH + 2,
       )
       .setStrokeStyle(1, 0xffffff, 0.35)
       .setFillStyle(0x000000, 0)
@@ -124,6 +121,55 @@ export class HUDScene extends Phaser.Scene {
       })
       .setAlpha(0.5)
       .setDepth(202);
+
+    // --- Clickable overlay → jump camera ---
+    const hitZone = this.add
+      .zone(
+        this.minimapX + this.mmW / 2,
+        this.minimapY + this.mmH / 2,
+        this.mmW,
+        this.mmH,
+      )
+      .setInteractive({ useHandCursor: true })
+      .setDepth(203);
+
+    hitZone.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      const localX = pointer.x - this.minimapX;
+      const localY = pointer.y - this.minimapY;
+      const tileX = Math.floor(localX / MINIMAP_SCALE);
+      const tileY = Math.floor(localY / MINIMAP_SCALE);
+
+      const gameScene = this.scene.get("GameScene");
+      if (gameScene) {
+        const cam = gameScene.cameras.main;
+        cam.stopFollow();
+
+        const targetScrollX = tileX * 32 + 16 - cam.width / 2;
+        const targetScrollY = tileY * 32 + 16 - cam.height / 2;
+
+        gameScene.tweens.add({
+          targets: cam,
+          scrollX: targetScrollX,
+          scrollY: targetScrollY,
+          duration: 300,
+          ease: "Cubic.easeOut",
+        });
+      }
+    });
+
+    const resumeFollow = () => {
+      const gameScene = this.scene.get("GameScene");
+      if (!gameScene) return;
+      const sprite = gameScene.registry.get("playerSprite") as
+        | Phaser.GameObjects.Sprite
+        | null;
+      if (sprite) {
+        gameScene.cameras.main.startFollow(sprite, true, 0.1, 0.1);
+      }
+    };
+
+    hitZone.on("pointerup", resumeFollow);
+    hitZone.on("pointerout", resumeFollow);
   }
 
   update(time: number): void {
@@ -181,13 +227,12 @@ export class HUDScene extends Phaser.Scene {
   private renderTerrain(): void {
     const map = this.tileMapManager?.map;
     if (!map) {
-      // Registry not ready — draw empty minimap background
       this.add
         .rectangle(
-          this.minimapX + MM_W / 2,
-          this.minimapY + MM_H / 2,
-          MM_W,
-          MM_H,
+          this.minimapX + this.mmW / 2,
+          this.minimapY + this.mmH / 2,
+          this.mmW,
+          this.mmH,
           0x111122,
           0.85,
         )
@@ -195,22 +240,22 @@ export class HUDScene extends Phaser.Scene {
       return;
     }
 
-    // Read ground-layer tile data
     const groundLayer = map.getLayer("ground");
     if (!groundLayer?.data) return;
 
-    // Build a pixel buffer for the minimap terrain
-    // Use CanvasTexture or generateTexture for efficiency
+    const mapW = map.width;
+    const mapH = map.height;
+
     const terrainGfx = this.add.graphics();
     terrainGfx.setDepth(199);
 
-    // Draw background
+    // Background
     terrainGfx.fillStyle(0x111122, 0.85);
-    terrainGfx.fillRect(this.minimapX, this.minimapY, MM_W, MM_H);
+    terrainGfx.fillRect(this.minimapX, this.minimapY, this.mmW, this.mmH);
 
-    // Draw each tile as a MINIMAP_SCALE×MINIMAP_SCALE pixel
-    for (let ty = 0; ty < MAP_H; ty++) {
-      for (let tx = 0; tx < MAP_W; tx++) {
+    // Each tile → MINIMAP_SCALE × MINIMAP_SCALE pixels
+    for (let ty = 0; ty < mapH; ty++) {
+      for (let tx = 0; tx < mapW; tx++) {
         const tile = groundLayer.data[ty]?.[tx];
         if (!tile || tile.index === -1) continue;
 

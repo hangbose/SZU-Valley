@@ -2,23 +2,29 @@
  * GameScene — Main gameplay scene.
  *
  * Orchestrates the tilemap, local player, camera, entity registry,
- * proximity detection, and interaction prompt. Test NPCs are seeded
- * so proximity + interaction can be exercised without a server.
+ * proximity detection, interaction prompt, and server event handling
+ * (remote players, NPCs, movement broadcast).
+ *
+ * Test NPCs are seeded as a fallback and replaced when the server
+ * sends `zone.npcs`.
  */
 
 import Phaser from "phaser";
 import { bridge } from "@/network/bridge";
 import type { MapEntity } from "@/network/bridge";
+import { getSocket, consumeZoneBuffer } from "@/network/socket";
 import { TileMapManager } from "@/game/map/TileMapManager";
 import { LocalPlayer } from "@/game/entities/LocalPlayer";
+import { RemotePlayer } from "@/game/entities/RemotePlayer";
 import { NPC } from "@/game/entities/NPC";
+import { useGameStore } from "@/ui/store/gameStore";
 
 // ---------------------------------------------------------------------------
 // Tunables
 // ---------------------------------------------------------------------------
 
-/** Default spawn tile when the server doesn't assign one. Centre of 80×60 map. */
-const DEFAULT_SPAWN_TILE = { x: 40, y: 30 };
+/** Default spawn tile when the server doesn't assign one. Centre of 200×150 map. */
+const DEFAULT_SPAWN_TILE = { x: 100, y: 75 };
 
 /** Cache keys (must match BootScene preload keys). */
 const TILESET_KEY = "campus-tileset";
@@ -29,6 +35,9 @@ const PROXIMITY_RANGE = 3;
 
 /** Number of proximity checks per second (avoids scanning every frame). */
 const PROXIMITY_HZ = 10;
+
+/** How often to send `player.move` to the server (ms). */
+const MOVE_SEND_INTERVAL = 50;
 
 // ---------------------------------------------------------------------------
 // Test NPCs (static seed data — replaced by zone.npcs socket event later)
@@ -46,29 +55,29 @@ const TEST_NPCS: NpcSeed[] = [
   {
     id: "npc_librarian",
     name: "图书管理员 · Librarian",
-    tileX: 36,
+    tileX: 96,
     tileY: 28,
     description: "管理图书馆借阅 · Manages book loans",
   },
   {
     id: "npc_barista",
     name: "咖啡师 · Barista",
-    tileX: 44,
-    tileY: 26,
+    tileX: 116,
+    tileY: 132,
     description: "校园咖啡店店员 · Campus café staff",
   },
   {
     id: "npc_student_a",
     name: "自习的同学 · Studious classmate",
-    tileX: 38,
-    tileY: 34,
+    tileX: 100,
+    tileY: 80,
     description: "正在复习高数 · Reviewing advanced math",
   },
   {
     id: "npc_guard",
     name: "保安大叔 · Security guard",
-    tileX: 42,
-    tileY: 32,
+    tileX: 100,
+    tileY: 139,
     description: "校门执勤 · On gate duty",
   },
 ];
@@ -98,6 +107,13 @@ export class GameScene extends Phaser.Scene {
   // ---- NPC instances (for cleanup) ----
   private npcs: NPC[] = [];
 
+  // ---- Remote players (id → RemotePlayer) ----
+  private remotePlayers = new Map<string, RemotePlayer>();
+
+  // ---- Socket state ----
+  private lastMoveSend = 0;
+  private serverNpcSeeded = false;
+
   constructor() {
     super({ key: "GameScene" });
   }
@@ -116,35 +132,29 @@ export class GameScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, worldW, worldH);
     this.cameras.main.setBounds(0, 0, worldW, worldH);
 
-    // --- 2. Local player ---
+    // --- 2. Local player (use server-assigned spawn, fallback to default) ---
+    const store = useGameStore.getState();
+    const spawnTileX = store.spawnX || DEFAULT_SPAWN_TILE.x;
+    const spawnTileY = store.spawnY || DEFAULT_SPAWN_TILE.y;
+
     this.localPlayer = new LocalPlayer(this);
-    this.localPlayer.spawn(DEFAULT_SPAWN_TILE.x, DEFAULT_SPAWN_TILE.y, "");
+    this.localPlayer.spawn(spawnTileX, spawnTileY, store.playerAvatar || "");
     this.physics.add.collider(this.localPlayer.sprite, collisionLayer);
 
     // --- 3. Camera ---
     this.cameras.main.startFollow(this.localPlayer.sprite, true, 0.1, 0.1);
 
-    // --- 4. Seed test NPCs ---
-    for (const seed of TEST_NPCS) {
-      const npc = new NPC(
-        this,
-        seed.id,
-        seed.name,
-        "",
-        seed.tileX,
-        seed.tileY,
-        seed.description,
-      );
-      npc.sprite.setDepth(5);
-      this.npcs.push(npc);
-      this.registerEntity({
-        id: seed.id,
-        name: seed.name,
-        x: seed.tileX,
-        y: seed.tileY,
-        isNPC: true,
-      });
-    }
+    // --- 3b. Scroll-wheel zoom ---
+    this.setupZoom();
+
+    // --- 4. Seed test NPCs (fallback — replaced when server sends zone.npcs) ---
+    this.seedTestNpcs();
+
+    // --- 4b. Server event handlers ---
+    this.setupServerEvents();
+
+    // --- 4c. Consume buffered zone data (may have arrived before GameScene started) ---
+    this.consumeZoneBuffer();
 
     // --- 5. Interaction prompt (hidden until someone is nearby) ---
     this.createInteractionPrompt();
@@ -191,6 +201,7 @@ export class GameScene extends Phaser.Scene {
     // --- 8. Share data with HUDScene via registry ---
     this.registry.set("tileMapManager", this.tileMapManager);
     this.registry.set("localPlayer", this.localPlayer);
+    this.registry.set("playerSprite", this.localPlayer.sprite);
     this.registry.set("entities", this.entities);
     this.registry.set("proximityTargets", this.proximityTargets);
     this.registry.set("closestTargetId", this.closestTargetId);
@@ -200,11 +211,22 @@ export class GameScene extends Phaser.Scene {
 
     // --- 10. Resize ---
     this.scale.on("resize", this.handleResize, this);
+
+    // --- 11. Listen for friend-click → fly camera ---
+    bridge.on("focus-entity", ({ id }) => this.flyToEntity(id));
   }
 
   update(time: number, delta: number): void {
     // Local player
     this.localPlayer.update(time, delta);
+
+    // Send player.move to server (throttled)
+    this.sendMoveToServer(time);
+
+    // Remote players interpolation
+    for (const rp of this.remotePlayers.values()) {
+      rp.update(time, delta);
+    }
 
     // Proximity check (throttled to PROXIMITY_HZ)
     if (time - this.lastProximityCheck >= 1000 / PROXIMITY_HZ) {
@@ -219,6 +241,224 @@ export class GameScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.eKey)) {
       this.interactWithClosest();
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Test NPC seeding (fallback)
+  // -----------------------------------------------------------------------
+
+  private seedTestNpcs(): void {
+    if (this.serverNpcSeeded) return;
+
+    for (const seed of TEST_NPCS) {
+      this.spawnNpc(seed.id, seed.name, "", seed.tileX, seed.tileY, seed.description);
+    }
+  }
+
+  /** Spawn a single NPC and register it. */
+  private spawnNpc(
+    id: string,
+    name: string,
+    avatar: string,
+    tileX: number,
+    tileY: number,
+    description: string,
+  ): void {
+    // Avoid duplicates
+    if (this.entities.has(id)) return;
+
+    const npc = new NPC(this, id, name, avatar, tileX, tileY, description);
+    npc.sprite.setDepth(5);
+    this.npcs.push(npc);
+    this.registerEntity({ id, name, x: tileX, y: tileY, isNPC: true });
+  }
+
+  // -----------------------------------------------------------------------
+  // Server event handlers
+  // -----------------------------------------------------------------------
+
+  private setupServerEvents(): void {
+    const socket = getSocket();
+    const store = useGameStore.getState;
+    const myId = store().playerId;
+
+    // --- player.appeared → spawn remote player ---
+    socket.on("player.appeared", (data: {
+      id: string; name: string; avatar: string; x: number; y: number;
+    }) => {
+      if (data.id === myId) return; // skip self
+      if (this.remotePlayers.has(data.id)) return; // already spawned
+
+      const rp = new RemotePlayer(this, data.id, data.name, data.avatar, data.x, data.y);
+      this.remotePlayers.set(data.id, rp);
+      this.registerEntity({
+        id: data.id,
+        name: data.name,
+        x: Math.round(data.x),
+        y: Math.round(data.y),
+        isNPC: false,
+      });
+    });
+
+    // --- player.moved → update remote player target ---
+    socket.on("player.moved", (data: {
+      id: string; x: number; y: number;
+    }) => {
+      if (data.id === myId) return;
+      const rp = this.remotePlayers.get(data.id);
+      if (!rp) return;
+
+      rp.setTarget(data.x, data.y);
+
+      // Update registry coords for proximity detection
+      const entity = this.entities.get(data.id);
+      if (entity) {
+        entity.x = Math.round(data.x);
+        entity.y = Math.round(data.y);
+      }
+    });
+
+    // --- player.left → remove remote player ---
+    socket.on("player.left", (data: { id: string }) => {
+      const rp = this.remotePlayers.get(data.id);
+      if (rp) {
+        rp.destroy();
+        this.remotePlayers.delete(data.id);
+      }
+      this.unregisterEntity(data.id);
+    });
+
+    // --- zone.players → initial snapshot of nearby players ---
+    socket.on("zone.players", (data: {
+      players: Array<{ id: string; name: string; avatar: string; x: number; y: number }>;
+    }) => {
+      if (!Array.isArray(data?.players)) return;
+
+      for (const p of data.players) {
+        if (p.id === myId) continue;
+        if (this.remotePlayers.has(p.id)) continue;
+
+        const rp = new RemotePlayer(this, p.id, p.name, p.avatar, p.x, p.y);
+        this.remotePlayers.set(p.id, rp);
+        this.registerEntity({
+          id: p.id,
+          name: p.name,
+          x: Math.round(p.x),
+          y: Math.round(p.y),
+          isNPC: false,
+        });
+      }
+
+      // Update HUD online count
+      store().setOnlineCount(this.remotePlayers.size + 1); // +1 for self
+    });
+
+    // --- zone.npcs → NPCs in this zone (replaces test NPCs) ---
+    socket.on("zone.npcs", (data: {
+      npcs: Array<{ id: string; name: string; avatar: string; x: number; y: number; description: string }>;
+    }) => {
+      if (!Array.isArray(data?.npcs) || data.npcs.length === 0) return;
+
+      // Clear test NPCs on first server response
+      if (!this.serverNpcSeeded) {
+        this.clearTestNpcs();
+        this.serverNpcSeeded = true;
+      }
+
+      for (const npcData of data.npcs) {
+        this.spawnNpc(
+          npcData.id,
+          npcData.name,
+          npcData.avatar,
+          npcData.x,
+          npcData.y,
+          npcData.description || "",
+        );
+      }
+    });
+
+    // --- player.joined (echoed to self → update online count) ---
+    socket.on("player.joined", () => {
+      store().setOnlineCount(this.remotePlayers.size + 1);
+    });
+  }
+
+  /** Remove test NPCs (called when server NPC data arrives). */
+  private clearTestNpcs(): void {
+    for (const npc of this.npcs) {
+      this.unregisterEntity(npc.id);
+      npc.destroy();
+    }
+    this.npcs = [];
+  }
+
+  /** Process zone data that arrived before GameScene was ready. */
+  private consumeZoneBuffer(): void {
+    const buffer = consumeZoneBuffer();
+    if (!buffer) return;
+
+    const store = useGameStore.getState;
+    const myId = store().playerId;
+
+    // Process buffered players
+    if (buffer.players.length > 0) {
+      for (const p of buffer.players) {
+        if (p.id === myId) continue;
+        if (this.remotePlayers.has(p.id)) continue;
+
+        const rp = new RemotePlayer(this, p.id, p.name, p.avatar, p.x, p.y);
+        this.remotePlayers.set(p.id, rp);
+        this.registerEntity({
+          id: p.id,
+          name: p.name,
+          x: Math.round(p.x),
+          y: Math.round(p.y),
+          isNPC: false,
+        });
+      }
+      store().setOnlineCount(this.remotePlayers.size + 1);
+    }
+
+    // Process buffered NPCs
+    if (buffer.npcs.length > 0) {
+      if (!this.serverNpcSeeded) {
+        this.clearTestNpcs();
+        this.serverNpcSeeded = true;
+      }
+      for (const npcData of buffer.npcs) {
+        this.spawnNpc(
+          npcData.id,
+          npcData.name,
+          npcData.avatar,
+          npcData.x,
+          npcData.y,
+          npcData.description || "",
+        );
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Send player.move to server
+  // -----------------------------------------------------------------------
+
+  private sendMoveToServer(time: number): void {
+    if (time - this.lastMoveSend < MOVE_SEND_INTERVAL) return;
+    this.lastMoveSend = time;
+
+    const socket = getSocket();
+    if (!socket.connected) return;
+
+    const body = this.localPlayer.sprite.body as Phaser.Physics.Arcade.Body | null;
+    const moving = body ? Math.abs(body.velocity.x) > 1 || Math.abs(body.velocity.y) > 1 : false;
+
+    socket.emit("player.move", {
+      // pixel → tile (fractional). Tile centre = integer tile coord.
+      x: (this.localPlayer.sprite.x - 16) / 32,
+      y: (this.localPlayer.sprite.y - 16) / 32,
+      direction: this.localPlayer.direction,
+      moving,
+    });
   }
 
   // -----------------------------------------------------------------------
@@ -400,6 +640,41 @@ export class GameScene extends Phaser.Scene {
       ease: "Cubic.easeOut",
       onComplete: () => ring.destroy(),
     });
+  }
+
+  // -----------------------------------------------------------------------
+  // Zoom
+  // -----------------------------------------------------------------------
+
+  /** Min/max camera zoom levels. */
+  private static readonly ZOOM_MIN = 0.5;
+  private static readonly ZOOM_MAX = 2;
+
+  private setupZoom(): void {
+    this.input.on("wheel", (_pointer: Phaser.Input.Pointer, _gx: never[], _goy: never[], _dx: number, dy: number) => {
+      const newZoom = Phaser.Math.Clamp(
+        this.cameras.main.zoom - dy * 0.001,
+        GameScene.ZOOM_MIN,
+        GameScene.ZOOM_MAX,
+      );
+      this.cameras.main.setZoom(newZoom);
+    });
+  }
+
+  // -----------------------------------------------------------------------
+  // Focus entity (friend click)
+  // -----------------------------------------------------------------------
+
+  /** Smoothly pan camera to an entity. */
+  private flyToEntity(id: string): void {
+    const entity = this.entities.get(id);
+    if (!entity) return;
+
+    const targetPx = entity.x * 32 + 16;
+    const targetPy = entity.y * 32 + 16;
+
+    // Tween camera scroll position
+    this.cameras.main.pan(targetPx, targetPy, 600, "Cubic.easeInOut");
   }
 
   // -----------------------------------------------------------------------
