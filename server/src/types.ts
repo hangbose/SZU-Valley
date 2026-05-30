@@ -61,7 +61,10 @@ export type ErrorCode =
   | "INVALID_MOVE"
   | "RATE_LIMITED"
   | "NPC_NOT_FOUND"
-  | "PLAYER_NOT_FOUND";
+  | "PLAYER_NOT_FOUND"
+  | "ALREADY_FRIENDS"
+  | "REQUEST_NOT_FOUND"
+  | "NOT_FRIENDS";
 
 /** 服务端错误响应 · Server error response */
 export interface ErrorResponse {
@@ -116,3 +119,61 @@ export const MOVE_THROTTLE_MS = 50;
 
 /** 最大移动速度（瓦片/秒）· Max move speed (tiles/sec) for cheat detection */
 export const MAX_SPEED = 8;
+
+/** 聊天频率限制（条/秒）· Chat rate limit per second */
+export const CHAT_RATE_LIMIT = 5;
+
+/** 好友请求频率限制（条/分钟）· Friend request rate limit per minute */
+export const FRIEND_RATE_LIMIT = 10;
+
+/** 聊天消息最大长度（字符）· Max chat message length in chars */
+export const CHAT_MAX_LENGTH = 500;
+
+/** 对话历史每页条数 · Chat history page size */
+export const CHAT_PAGE_SIZE = 50;
+
+/** 聊天消息内存上限（每条对话）· Max messages per conversation in memory */
+export const CHAT_MAX_MESSAGES = 500;
+
+/** 好友请求过期清理间隔（毫秒）· Friend request cleanup interval */
+export const REQUEST_CLEANUP_AGE_MS = 5 * 60 * 1000;
+
+// ---- A2: 社交类型 · Social Types ----
+
+/** 好友请求状态 · Friend request status */
+export type FriendRequestStatus = "pending" | "accepted" | "rejected";
+
+/** 好友请求 · A friend request */
+export interface FriendRequest {
+  id: string;
+  from: string;
+  to: string;
+  status: FriendRequestStatus;
+  createdAt: number;
+}
+
+/** 好友关系 · A friendship pair */
+export interface Friendship {
+  playerA: string;
+  playerB: string;
+  createdAt: number;
+}
+
+/** 聊天消息 · A chat message */
+export interface ChatMessage {
+  id: string;
+  from: string;
+  to: string;
+  text: string;
+  timestamp: number;
+}
+
+/** 玩家公开资料（返回给客户端）· Player public profile */
+export interface PlayerProfile {
+  id: string;
+  name: string;
+  avatar: string;
+  tags: string[];
+  friendsCount: number;
+  isOnline: boolean;
+}
