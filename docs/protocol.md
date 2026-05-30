@@ -15,12 +15,15 @@
   │◄─── connected ──────────│  Socket.IO 握手成功 · handshake OK
   │                          │
   │──── player.join ────────►│  名字 + 头像 + 出生点 · Name + avatar + spawn
-  │◄─── player.joined ──────│  你的玩家 ID + 地图状态 · Your player ID + map state
+  │◄─── player.joined ──────│  你的玩家 ID + 出生点 · Your player ID + spawn
   │◄─── zone.players ───────│  你所在区域的实体 · Entities in your zone
   │◄─── zone.npcs ──────────│  你所在区域的 NPC · NPCs in your zone
   │                          │
   │  ... 游戏进行中 ...        │
   │  ... gameplay ...        │
+  │                          │
+  │◄─── player.appeared ────│  新玩家进入你的区域邻域 · New player in your zone neighborhood
+  │◄─── player.left ────────│  玩家离开你的区域邻域 · Player left your zone neighborhood
   │                          │
   │──── disconnect ─────────►│  标签页关闭 / 网络断开 · Tab closed / network loss
   │                          │  服务器清理，广播 player.left
@@ -123,6 +126,22 @@ Socket.IO 连接建立后发送一次。请求进入地图。
 }
 ```
 
+### `profile.view`
+
+请求查看附近玩家的公开资料。
+
+> Request to view a nearby player's public profile.
+
+```ts
+{
+  playerId: string;    // 目标玩家 ID · target player ID
+}
+```
+
+服务器响应：`profile.view`（见服务端 → 客户端消息）。
+
+> Server response: `profile.view` (see Server → Client Messages).
+
 ### `npc.talk`
 
 请求附近 NPC 的对话。
@@ -138,6 +157,23 @@ Socket.IO 连接建立后发送一次。请求进入地图。
 如果玩家距离 NPC 超过 3 格，服务器会拒绝。
 
 > Server rejects if the player is > 3 tiles from the NPC.
+
+### `chat.history`
+
+请求与某玩家的历史聊天记录。用于断线重连后恢复聊天面板。
+
+> Request chat history with a player. Used to restore the chat panel after reconnection.
+
+```ts
+{
+  with: string;        // 对方玩家 ID · the other player's ID
+  before?: number;     // 可选，分页游标（时间戳），不传则取最新一页 · optional cursor for pagination (timestamp)
+}
+```
+
+服务器响应：`chat.history`（见服务端 → 客户端消息）。
+
+> Server response: `chat.history` (see Server → Client Messages).
 
 ---
 
@@ -214,11 +250,11 @@ Socket.IO 连接建立后发送一次。请求进入地图。
 }
 ```
 
-### `player.joined`（广播）
+### `player.appeared`
 
-当新玩家进入你所在区域邻域时广播。（与上面的加入确认不同——相同的事件名称，不同的上下文。）
+当新玩家进入你所在区域邻域时广播。（区别于 `player.joined`——后者是自己加入成功的确认，前者是别人出现的通知。）
 
-> Broadcast when a new player enters your zone neighborhood. (Different from the join-confirmation above — same event name, different context.)
+> Broadcast when a new player enters your zone neighborhood. (Distinct from `player.joined` — the latter confirms your own join, the former notifies you of others appearing.)
 
 ```ts
 {
@@ -254,6 +290,25 @@ Socket.IO 连接建立后发送一次。请求进入地图。
   fromName: string;    // 发送者显示名称 · sender display name
   text: string;
   timestamp: number;   // Unix 毫秒 · Unix ms
+}
+```
+
+### `chat.history`
+
+对 `chat.history` 请求的响应。返回与指定玩家的历史消息列表（按时间升序）。
+
+> Response to a `chat.history` request. Returns the message history with the specified player (ascending by time).
+
+```ts
+{
+  with: string;        // 对方玩家 ID · the other player's ID
+  messages: Array<{
+    from: string;      // 发送者 ID · sender ID
+    fromName: string;  // 发送者名称 · sender name
+    text: string;
+    timestamp: number; // Unix 毫秒 · Unix ms
+  }>;
+  hasMore: boolean;    // 是否还有更早的消息（用于翻页）· whether older messages exist (for pagination)
 }
 ```
 
