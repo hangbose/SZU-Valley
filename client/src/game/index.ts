@@ -28,7 +28,7 @@ export function createGame(parent: HTMLElement): Phaser.Game {
       default: "arcade",
       arcade: {
         gravity: { x: 0, y: 0 }, // top-down, no gravity
-        debug: import.meta.env.DEV,
+        debug: false,
       },
     },
   };

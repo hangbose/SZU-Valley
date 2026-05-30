@@ -16,8 +16,8 @@ import { bridge } from "@/network/bridge";
 // Placeholder texture (generated once, reused for all NPCs)
 // ---------------------------------------------------------------------------
 
-const TEX_W = 16;
-const TEX_H = 20;
+const TEX_W = 24;
+const TEX_H = 32;
 
 let textureGenerated = false;
 
@@ -83,14 +83,16 @@ export class NPC {
       });
     });
 
-    // --- Name tag ---
-    const nameTag = scene.add.text(px, py - 16, name, {
-      fontSize: "10px",
-      color: "#44aaff",
-      backgroundColor: "#00000088",
-      padding: { x: 2, y: 1 },
-    });
-    nameTag.setOrigin(0.5, 1);
+    // --- Name tag (PNG bg behind, text on top — bg scales to fit text) ---
+    const npcText = scene.add.text(px, py - 16, name, {
+      fontSize: "35px", color: "#2b2b32", fontFamily: "monospace",
+    }).setOrigin(0.5, 0.5).setDepth(20);
+
+    const padX = 12;
+    const texW = scene.textures.get("ui-nametag").getSourceImage().width;
+    const tagScale = Math.max(0.1, (npcText.width + padX) / texW);
+    scene.add.sprite(px, py - 16, "ui-nametag")
+      .setOrigin(0.5, 0.5).setScale(tagScale).setDepth(11);
 
     void _avatar;
     void _description;

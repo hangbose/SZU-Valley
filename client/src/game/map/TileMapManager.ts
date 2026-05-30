@@ -15,9 +15,20 @@ import Phaser from "phaser";
 /** Tile size in pixels — must match the Tiled map and tileset. */
 export const TILE_SIZE = 32;
 
+interface TileMapLoadOptions {
+  renderVisualLayers?: boolean;
+  debugCollision?: boolean;
+}
+
 export class TileMapManager {
   /** The Phaser tilemap instance. */
   map: Phaser.Tilemaps.Tilemap | null = null;
+
+  /** Visual ground layer from Tiled. Can be hidden when using a painted background. */
+  groundLayer: Phaser.Tilemaps.TilemapLayer | null = null;
+
+  /** Visual decoration layer from Tiled. Can be hidden when using a painted background. */
+  decorationLayer: Phaser.Tilemaps.TilemapLayer | null = null;
 
   /** The collision layer (invisible, used for physics). */
   collisionLayer: Phaser.Tilemaps.TilemapLayer | null = null;
@@ -40,7 +51,10 @@ export class TileMapManager {
   load(
     mapKey: string,
     tilesetKey: string,
+    options: TileMapLoadOptions = {},
   ): Phaser.Tilemaps.TilemapLayer {
+    const renderVisualLayers = options.renderVisualLayers ?? true;
+    const debugCollision = options.debugCollision ?? import.meta.env.DEV;
     const map = this.scene.make.tilemap({ key: mapKey });
     this.map = map;
 
@@ -63,6 +77,8 @@ export class TileMapManager {
       throw new Error(`[TileMapManager] Layer "ground" not found.`);
     }
     groundLayer.setDepth(0);
+    groundLayer.setVisible(renderVisualLayers);
+    this.groundLayer = groundLayer;
 
     // --- Layer 2: Decoration (rendered above ground, z=5) ---
     // Trees, flowers, benches — things that sit on top of the ground
@@ -74,7 +90,9 @@ export class TileMapManager {
     ) as Phaser.Tilemaps.TilemapLayer | null;
     if (decorationLayer) {
       decorationLayer.setDepth(5);
+      decorationLayer.setVisible(renderVisualLayers);
     }
+    this.decorationLayer = decorationLayer;
 
     // --- Layer 3: Collision (invisible, z=999 so it's never rendered) ---
     const collisionLayer = map.createLayer(
@@ -96,7 +114,7 @@ export class TileMapManager {
     this.collisionLayer = collisionLayer;
 
     // --- Dev: render collision overlay ---
-    if (import.meta.env.DEV) {
+    if (debugCollision) {
       const debugGraphics = this.scene.add.graphics().setAlpha(0.25);
       debugGraphics.setDepth(998);
       collisionLayer.renderDebug(debugGraphics, {

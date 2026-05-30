@@ -17,8 +17,8 @@ import { bridge } from "@/network/bridge";
 // ---------------------------------------------------------------------------
 
 /** Size of the placeholder sprite (matches LocalPlayer). */
-const SPRITE_W = 16;
-const SPRITE_H = 20;
+const SPRITE_W = 24;
+const SPRITE_H = 32;
 
 /** Smoothing time constant for position interpolation (ms). Lower = snappier. */
 const SMOOTH_TIME = 100;
@@ -55,6 +55,7 @@ export class RemotePlayer {
   name: string;
   sprite: Phaser.GameObjects.Sprite;
   private nameTag: Phaser.GameObjects.Text;
+  private nameTagBg: Phaser.GameObjects.Sprite;
 
   // Interpolation targets (tile coordinates, may be fractional)
   targetX: number;
@@ -94,16 +95,16 @@ export class RemotePlayer {
       });
     });
 
-    // Name tag
-    this.nameTag = scene.add
-      .text(px, py - 18, name, {
-        fontSize: "10px",
-        color: "#ffaa44",
-        backgroundColor: "#00000088",
-        padding: { x: 2, y: 1 },
-      })
-      .setOrigin(0.5, 1)
-      .setDepth(12);
+    // Name tag (PNG bg behind, text on top — bg scales to fit text)
+    this.nameTag = scene.add.text(px, py - 20, name, {
+      fontSize: "35px", color: "#2b2b32", fontFamily: "monospace",
+    }).setOrigin(0.5, 0.5).setDepth(20);
+
+    const padX = 12;
+    const texW = scene.textures.get("ui-nametag").getSourceImage().width;
+    const tagScale = Math.max(0.1, (this.nameTag.width + padX) / texW);
+    this.nameTagBg = scene.add.sprite(px, py - 20, "ui-nametag")
+      .setOrigin(0.5, 0.5).setScale(tagScale).setDepth(11);
   }
 
   // -----------------------------------------------------------------------
@@ -136,7 +137,8 @@ export class RemotePlayer {
     this.sprite.y = currentY + (desiredY - currentY) * factor;
 
     // Name tag follows sprite
-    this.nameTag.setPosition(this.sprite.x, this.sprite.y - 18);
+    this.nameTagBg.setPosition(this.sprite.x, this.sprite.y - 20);
+    this.nameTag.setPosition(this.sprite.x, this.sprite.y - 20);
   }
 
   // -----------------------------------------------------------------------
@@ -145,6 +147,7 @@ export class RemotePlayer {
 
   destroy(): void {
     this.nameTag.destroy();
+    this.nameTagBg.destroy();
     this.sprite.destroy();
   }
 }

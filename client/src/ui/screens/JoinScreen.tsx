@@ -5,7 +5,7 @@
  * Validates name length (2–12 chars) and requires an avatar selection.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useGameStore } from "@/ui/store/gameStore";
 import { connect } from "@/network/socket";
 

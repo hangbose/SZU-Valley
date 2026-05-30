@@ -7,6 +7,7 @@ import type { CSSProperties } from "react";
 import type { FriendRequest } from "@/network/bridge";
 import { getSocket } from "@/network/socket";
 import { useGameStore } from "@/ui/store/gameStore";
+import { pixelFont } from "@/ui/components/PixelUiParts";
 
 const MAX_TOASTS = 3;
 const AUTO_DISMISS_MS = 8000;
@@ -259,36 +260,30 @@ function ToastCard({
     <section
       role="status"
       style={{
-        ...styles.toast,
         opacity: isVisible ? 1 : 0,
         transform: isVisible ? "translateX(0)" : "translateX(120%)",
+        transition: "transform 300ms ease-out, opacity 300ms ease-out",
+        pointerEvents: "auto",
       }}
     >
       {isAdded ? (
-        <div style={styles.addedMessage}>已添加 · Added!</div>
+        <div style={styles.confirmedBox}>已添加 · Added!</div>
       ) : (
-        <>
-          <p style={styles.message}>
-            🔔 <strong style={styles.sender}>{toast.fromName}</strong>{" "}
-            请求添加你为好友 · wants to add you as a friend
+        <div style={styles.toastBox}>
+          <p style={styles.toastMsg}>
+            🔔 <strong style={{ color: "#ffe19d" }}>{toast.fromName}</strong>
+            {" "}请求添加你为好友
           </p>
-          <div style={styles.actions}>
-            <button
-              type="button"
-              onClick={handleAccept}
-              style={styles.acceptButton}
-            >
+          <p style={styles.toastSub}>wants to add you as a friend</p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={handleAccept} style={styles.acceptBtn}>
               接受 · Accept
             </button>
-            <button
-              type="button"
-              onClick={handleReject}
-              style={styles.rejectButton}
-            >
+            <button type="button" onClick={handleReject} style={styles.rejectBtn}>
               拒绝 · Reject
             </button>
           </div>
-        </>
+        </div>
       )}
     </section>
   );
@@ -342,69 +337,73 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 10,
-    width: "min(360px, calc(100vw - 32px))",
+    width: "min(300px, calc(100vw - 32px))",
     pointerEvents: "none",
     zIndex: 300,
   },
-  toast: {
-    width: "100%",
-    minHeight: 116,
+  toastBox: {
     boxSizing: "border-box",
-    padding: 14,
+    padding: "16px 18px",
+    borderRadius: 16,
+    border: "4px solid #29283a",
+    background: "rgba(41, 51, 69, .92)",
+    boxShadow: "inset 0 0 0 3px #ddb864, 0 8px 0 rgba(30,28,42,.5)",
+    color: "#fff",
+    fontFamily: pixelFont,
+    fontSize: 12,
+    imageRendering: "pixelated",
+  },
+  toastMsg: {
+    margin: "0 0 4px",
+    color: "#ffe19d",
+    fontSize: 13,
+    lineHeight: 1.5,
+  },
+  toastSub: {
+    margin: "0 0 14px",
+    color: "#b8a880",
+    fontSize: 9,
+  },
+  acceptBtn: {
+    flex: 1,
+    height: 40,
+    border: "3px solid #ddb864",
     borderRadius: 8,
-    border: "1px solid rgba(76, 175, 80, 0.35)",
-    background: "rgba(26, 26, 46, 0.96)",
-    boxShadow: "0 14px 32px rgba(0, 0, 0, 0.38)",
-    color: "#fff",
-    pointerEvents: "none",
-    transition: `transform ${SLIDE_MS}ms ease-out, opacity ${SLIDE_MS}ms ease-out`,
-  },
-  message: {
-    margin: "0 0 12px",
-    color: "#fff",
-    fontSize: 14,
-    lineHeight: 1.45,
-  },
-  sender: {
-    color: "#fff",
-    fontWeight: 700,
-  },
-  actions: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 8,
-  },
-  acceptButton: {
-    minHeight: 44,
-    borderRadius: 6,
-    border: "none",
-    background: "#4caf50",
-    color: "#fff",
+    background: "#343149",
+    color: "#ffe19d",
     cursor: "pointer",
-    fontSize: 14,
+    fontFamily: pixelFont,
+    fontSize: 11,
     fontWeight: 700,
     pointerEvents: "auto",
-    touchAction: "manipulation",
   },
-  rejectButton: {
-    minHeight: 44,
-    borderRadius: 6,
-    border: "1px solid rgba(255, 255, 255, 0.16)",
-    background: "rgba(102, 102, 102, 0.28)",
-    color: "#d8d8d8",
+  rejectBtn: {
+    flex: 1,
+    height: 40,
+    border: "3px solid #4a3e5a",
+    borderRadius: 8,
+    background: "rgba(102,102,102,0.22)",
+    color: "#b8a880",
     cursor: "pointer",
-    fontSize: 14,
+    fontFamily: pixelFont,
+    fontSize: 11,
     fontWeight: 700,
     pointerEvents: "auto",
-    touchAction: "manipulation",
   },
-  addedMessage: {
-    minHeight: 86,
+  confirmedBox: {
+    minHeight: 80,
+    boxSizing: "border-box",
+    padding: 20,
+    borderRadius: 16,
+    border: "4px solid #29283a",
+    background: "rgba(41, 51, 69, .92)",
+    boxShadow: "inset 0 0 0 3px #ddb864, 0 8px 0 rgba(30,28,42,.5)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    color: "#4caf50",
-    fontSize: 16,
-    fontWeight: 800,
+    color: "#ffe19d",
+    fontFamily: pixelFont,
+    fontSize: 14,
+    fontWeight: 700,
   },
 };

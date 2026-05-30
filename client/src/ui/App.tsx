@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Phaser from "phaser";
+import { bridge } from "@/network/bridge";
 import { useGameStore } from "@/ui/store/gameStore";
 import { createGame, destroyGame } from "@/game";
 import { JoinScreen } from "@/ui/screens/JoinScreen";
@@ -25,6 +26,16 @@ export function App() {
   const phase = useGameStore((s) => s.phase);
   const [game, setGame] = useState<Phaser.Game | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Wire bridge events → store (App owns cross-cutting UI state)
+  const setProfileTarget = useGameStore((s) => s.setProfileTarget);
+
+  useEffect(() => {
+    const unsubClick = bridge.on("player-clicked", ({ playerId }) => {
+      setProfileTarget(playerId);
+    });
+    return () => unsubClick();
+  }, [setProfileTarget]);
 
   // Start Phaser when entering "game" phase
   useEffect(() => {

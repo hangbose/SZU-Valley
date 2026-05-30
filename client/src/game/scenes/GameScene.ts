@@ -51,6 +51,7 @@ const DEFAULT_SPAWN_TILE = { x: 100, y: 75 };
 /** Cache keys (must match BootScene preload keys). */
 const TILESET_KEY = "campus-tileset";
 const MAP_KEY = "campus-test";
+const BACKGROUND_KEY = "campus-background";
 
 /** Manhattan distance threshold for proximity (tiles). */
 const PROXIMITY_RANGE = 3;
@@ -122,9 +123,9 @@ export class GameScene extends Phaser.Scene {
   private closestTargetId: string | null = null;
 
   // ---- Interaction prompt ----
-  private promptText!: Phaser.GameObjects.Text;
-  private promptBg!: Phaser.GameObjects.Rectangle;
+  private promptKey!: Phaser.GameObjects.Sprite;
   private eKey!: Phaser.Input.Keyboard.Key;
+  private readonly PROMPT_SCALE = 0.7;
 
   // ---- NPC instances (for cleanup) ----
   private npcs: NPC[] = [];
@@ -150,10 +151,20 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     // --- 1. Tilemap ---
     this.tileMapManager = new TileMapManager(this);
-    const collisionLayer = this.tileMapManager.load(MAP_KEY, TILESET_KEY);
+    const collisionLayer = this.tileMapManager.load(MAP_KEY, TILESET_KEY, {
+      debugCollision: false,
+      renderVisualLayers: false,
+    });
 
     const worldW = this.tileMapManager.worldWidth;
     const worldH = this.tileMapManager.worldHeight;
+
+    this.add
+      .image(0, 0, BACKGROUND_KEY)
+      .setOrigin(0)
+      .setDepth(-10)
+      .setDisplaySize(worldW, worldH);
+
     this.physics.world.setBounds(0, 0, worldW, worldH);
     this.cameras.main.setBounds(0, 0, worldW, worldH);
 
@@ -168,6 +179,7 @@ export class GameScene extends Phaser.Scene {
 
     // --- 3. Camera ---
     this.cameras.main.startFollow(this.localPlayer.sprite, true, 0.1, 0.1);
+    this.cameras.main.setZoom(0.2); // show more of the map by default
 
     // --- 3b. Scroll-wheel zoom ---
     this.setupZoom();
@@ -585,62 +597,31 @@ export class GameScene extends Phaser.Scene {
   // -----------------------------------------------------------------------
 
   private createInteractionPrompt(): void {
-    const label = "按 E 交谈 · Press E";
-
-    this.promptText = this.add
-      .text(0, 0, label, {
-        fontSize: "11px",
-        color: "#ffffff",
-        fontFamily: "monospace",
-      })
-      .setOrigin(0.5, 1)
-      .setDepth(100)
-      .setVisible(false);
-
-    // Background pill
-    const padX = 10;
-    const padY = 4;
-    this.promptBg = this.add
-      .rectangle(
-        0,
-        0,
-        this.promptText.width + padX * 2,
-        this.promptText.height + padY * 2,
-        0x000000,
-        0.7,
-      )
+    this.promptKey = this.add
+      .sprite(0, 0, "ui-key")
       .setOrigin(0.5, 1)
       .setDepth(99)
+      .setScale(this.PROMPT_SCALE)
       .setVisible(false);
   }
 
-  /** Show the prompt above a target entity. */
   private showPrompt(entity: MapEntity): void {
     const px = entity.x * 32 + 16;
-    const py = entity.y * 32 - 4; // just above the sprite
-
-    this.promptBg.setPosition(px, py).setVisible(true);
-    this.promptText.setPosition(px, py - 6).setVisible(true);
+    const py = entity.y * 32 - 4;
+    this.promptKey.setPosition(px, py - 4).setVisible(true);
   }
 
-  /** Hide the interaction prompt. */
   private hidePrompt(): void {
-    this.promptBg.setVisible(false);
-    this.promptText.setVisible(false);
+    this.promptKey.setVisible(false);
   }
 
-  /** Re-position the prompt every frame (follows moving targets). */
   private updatePromptPosition(): void {
     if (!this.closestTargetId) return;
     const entity = this.entities.get(this.closestTargetId);
-    if (!entity) {
-      this.hidePrompt();
-      return;
-    }
+    if (!entity) { this.hidePrompt(); return; }
     const px = entity.x * 32 + 16;
     const py = entity.y * 32 - 4;
-    this.promptBg.setPosition(px, py);
-    this.promptText.setPosition(px, py - 6);
+    this.promptKey.setPosition(px, py - 4);
   }
 
   // -----------------------------------------------------------------------
@@ -681,7 +662,6 @@ export class GameScene extends Phaser.Scene {
     text: string,
     onClick: (() => void) | null,
   ): void {
-    // Replace existing bubble for this entity (only one at a time)
     const existing = this.bubbles.get(entityId);
     if (existing) {
       existing.container.destroy();
@@ -692,35 +672,24 @@ export class GameScene extends Phaser.Scene {
       ? text.slice(0, BUBBLE_MAX_CHARS) + "…"
       : text;
 
-    // Background pill
-    const padX = 6;
-    const padY = 3;
-    const tempText = this.add.text(0, 0, truncated, {
-      fontSize: "11px",
-      color: "#ffffff",
+    const scale = 0.4;
+    const bg = this.add.sprite(0, 0, "ui-bubble")
+      .setOrigin(0.5, 0.5)
+      .setScale(scale);
+
+    const label = this.add.text(0, -2, truncated, {
+      fontSize: "36px",
+      color: "#2b2b32",
       fontFamily: "monospace",
-      wordWrap: { width: 180 },
-    });
-    const bw = Math.min(tempText.width, 180) + padX * 2;
-    const bh = tempText.height + padY * 2;
-    tempText.destroy();
+      wordWrap: { width: bg.displayWidth - 18 },
+    }).setOrigin(0.5, 0.5);
 
-    const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.75);
-    bg.fillRoundedRect(-bw / 2, -bh, bw, bh, 4);
-
-    const label = this.add.text(0, -bh + padY, truncated, {
-      fontSize: "11px",
-      color: "#ffffff",
-      fontFamily: "monospace",
-      wordWrap: { width: 180 },
-    }).setOrigin(0.5, 0);
-
-    const container = this.add.container(worldX, worldY - 20, [bg, label]);
+    const container = this.add.container(worldX, worldY - 26, [bg, label]);
     container.setDepth(95);
 
     if (onClick) {
-      const hitZone = this.add.zone(0, -bh / 2, bw, bh)
+      const hitZone = this.add
+        .zone(0, 0, bg.displayWidth, bg.displayHeight)
         .setInteractive({ useHandCursor: true });
       hitZone.on("pointerdown", onClick);
       container.add(hitZone);
@@ -728,7 +697,7 @@ export class GameScene extends Phaser.Scene {
 
     this.bubbles.set(entityId, {
       container,
-      bg,
+      bg: undefined as unknown as Phaser.GameObjects.Graphics,
       text: label,
       entityId,
       createdAt: this.time.now,
@@ -811,7 +780,7 @@ export class GameScene extends Phaser.Scene {
   // -----------------------------------------------------------------------
 
   /** Min/max camera zoom levels. */
-  private static readonly ZOOM_MIN = 0.5;
+  private static readonly ZOOM_MIN = 0.15;
   private static readonly ZOOM_MAX = 2;
 
   private setupZoom(): void {

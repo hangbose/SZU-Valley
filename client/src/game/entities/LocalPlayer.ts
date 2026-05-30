@@ -20,8 +20,8 @@ import type { Direction } from "@/game/input/KeyboardController";
 const SPEED = 160;
 
 /** Placeholder sprite size (pixels). Fits within one 32×32 tile. */
-const SPRITE_W = 16;
-const SPRITE_H = 20;
+const SPRITE_W = 24;
+const SPRITE_H = 32;
 
 /** How often to emit `position-changed` via the bridge (ms). */
 const POSITION_EMIT_INTERVAL = 100;

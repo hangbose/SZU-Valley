@@ -1,29 +1,27 @@
 /**
- * NPCDialogue — RPG-style dialogue box shown when interacting with an NPC.
+ * NPCDialogue — Pixel-art dialogue box shown when interacting with an NPC.
  *
+ * Styled after PixelDialogBox from the pixel-art UI kit.
  * Listens for `npc-clicked` bridge events, sends `npc.talk` via socket,
- * and falls back to hardcoded dialogues when no server is running.
+ * falls back to hardcoded dialogues when no server is running.
  * Dismiss with click, ESC, Enter, or Space.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import type { CSSProperties } from "react";
 import { bridge } from "@/network/bridge";
 import { getSocket } from "@/network/socket";
 import { useGameStore } from "@/ui/store/gameStore";
+import { PixelDialogBox, pixelFont } from "@/ui/components/PixelUiParts";
 
 // ---------------------------------------------------------------------------
 // Tunables
 // ---------------------------------------------------------------------------
 
-/** How long to wait for a server response before using fallback (ms). */
 const SOCKET_TIMEOUT = 3000;
-
-/** Fade-in duration for the dialogue box (ms). */
 const FADE_MS = 200;
 
 // ---------------------------------------------------------------------------
-// Hardcoded fallback dialogues (used when no server is running)
+// Fallback dialogues
 // ---------------------------------------------------------------------------
 
 const FALLBACK_DIALOGUES: Record<string, string[]> = {
@@ -49,7 +47,6 @@ const FALLBACK_DIALOGUES: Record<string, string[]> = {
   ],
 };
 
-/** Pick a random line from a dialogue array. */
 function randomLine(lines: string[]): string {
   return lines[Math.floor(Math.random() * lines.length)] ?? "...";
 }
@@ -72,7 +69,6 @@ export function NPCDialogue() {
     return bridge.on("npc-clicked", ({ npcId, npcName }) => {
       if (cancelled) return;
 
-      // Try the server first
       let resolved = false;
       const socket = getSocket();
 
@@ -89,11 +85,9 @@ export function NPCDialogue() {
         setIsFallback(false);
       };
 
-      // The server may respond on either event
       socket.on("npc.talk", handleTalk);
       socket.on("npc.dialogue", handleTalk);
 
-      // Fallback if no server response
       timeoutId = window.setTimeout(() => {
         if (cancelled || resolved) return;
         resolved = true;
@@ -109,14 +103,13 @@ export function NPCDialogue() {
         setIsFallback(true);
       }, SOCKET_TIMEOUT);
 
-      // Emit the request (fire-and-forget — might not reach if no server)
       if (socket.connected) {
         socket.emit("npc.talk", { npcId });
       }
     });
   }, [setNpcDialogue]);
 
-  // Fade in when dialogue appears
+  // Fade in
   useEffect(() => {
     if (npcDialogue) {
       const raf = requestAnimationFrame(() => setVisible(true));
@@ -127,22 +120,18 @@ export function NPCDialogue() {
     }
   }, [npcDialogue]);
 
-  // Dismiss handlers
   const dismiss = useCallback(() => {
     setNpcDialogue(null);
   }, [setNpcDialogue]);
 
-  // Keyboard dismiss
   useEffect(() => {
     if (!npcDialogue) return;
-
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape" || e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         dismiss();
       }
     };
-
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [dismiss, npcDialogue]);
@@ -152,27 +141,44 @@ export function NPCDialogue() {
   return (
     <div
       style={{
-        ...styles.overlay,
+        position: "absolute",
+        inset: 0,
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "center",
+        paddingBottom: 48,
+        pointerEvents: "auto",
+        zIndex: 200,
         opacity: visible ? 1 : 0,
         transition: `opacity ${FADE_MS}ms ease-out`,
       }}
       onClick={dismiss}
     >
-      <div style={styles.box} onClick={(e) => e.stopPropagation()}>
-        {/* NPC name header */}
-        <div style={styles.header}>
-          <span style={styles.npcIcon}>💬</span>
-          <span style={styles.npcName}>{npcDialogue.npcName}</span>
-          {isFallback && <span style={styles.fallbackBadge}>本地 · Local</span>}
-        </div>
-
-        {/* Dialogue text */}
-        <p style={styles.text}>{npcDialogue.text}</p>
-
-        {/* Hint */}
-        <p style={styles.hint}>
-          点击任意处 · 按 ESC/Enter/Space 关闭 · Click or press key to close
-        </p>
+      <div onClick={(e) => e.stopPropagation()}>
+        <PixelDialogBox scale={0.55}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <span style={{ fontSize: 16, fontWeight: 700, color: "#415331" }}>
+              {npcDialogue.npcName}
+            </span>
+            {isFallback && (
+              <span style={{
+                fontSize: 10,
+                color: "#8baa54",
+                border: "2px solid #6f9045",
+                borderRadius: 4,
+                padding: "1px 6px",
+                background: "#efe5ce",
+                fontFamily: pixelFont,
+              }}>本地</span>
+            )}
+          </div>
+          <p style={{ margin: "0 0 14px", fontSize: 14, lineHeight: 1.9, color: "#2b2b32" }}>
+            {npcDialogue.text}
+          </p>
+          <p style={{ margin: 0, fontSize: 10, color: "#8baa54", textAlign: "center" }}>
+            点击 · ESC · Enter · Space 关闭
+          </p>
+        </PixelDialogBox>
       </div>
     </div>
   );
@@ -186,80 +192,10 @@ function extractDialogueText(payload: unknown): string | null {
   if (typeof payload === "string" && payload.trim().length > 0) {
     return payload.trim();
   }
-
   if (!payload || typeof payload !== "object") return null;
-
   const record = payload as Record<string, unknown>;
   const text = record.text ?? record.dialogue ?? record.message ?? record.line;
-
   return typeof text === "string" && text.trim().length > 0
     ? text.trim()
     : null;
 }
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const styles: Record<string, CSSProperties> = {
-  overlay: {
-    position: "absolute",
-    inset: 0,
-    display: "flex",
-    alignItems: "flex-end",
-    justifyContent: "center",
-    paddingBottom: 32,
-    pointerEvents: "auto",
-    zIndex: 200,
-    background:
-      "linear-gradient(to top, rgba(0,0,0,0.35) 0%, transparent 40%)",
-  },
-  box: {
-    width: "min(600px, calc(100vw - 48px))",
-    minHeight: 120,
-    borderRadius: 8,
-    border: "2px solid rgba(76, 175, 80, 0.45)",
-    background: "rgba(20, 20, 40, 0.96)",
-    boxShadow: "0 18px 50px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.3)",
-    padding: "18px 22px 14px",
-    color: "#fff",
-    cursor: "pointer",
-  },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12,
-  },
-  npcIcon: {
-    fontSize: 18,
-    lineHeight: 1,
-  },
-  npcName: {
-    fontSize: 16,
-    fontWeight: 700,
-    color: "#4caf50",
-  },
-  fallbackBadge: {
-    marginLeft: "auto",
-    fontSize: 10,
-    fontWeight: 700,
-    color: "#888",
-    border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: 4,
-    padding: "1px 6px",
-    background: "rgba(255,255,255,0.06)",
-  },
-  text: {
-    margin: "0 0 14px",
-    fontSize: 15,
-    lineHeight: 1.7,
-    color: "#e0e0e0",
-  },
-  hint: {
-    margin: 0,
-    fontSize: 10,
-    color: "#555",
-    textAlign: "center",
-  },
-};
