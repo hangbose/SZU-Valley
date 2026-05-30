@@ -28,7 +28,7 @@ const __dirname = dirname(__filename);
  */
 export function loadNPCs(): NPC[] {
   try {
-    const filePath = join(__dirname, "..", "..", "data", "npcs.json");
+    const filePath = join(__dirname, "..", "data", "npcs.json");
     const raw = readFileSync(filePath, "utf-8");
     return JSON.parse(raw) as NPC[];
   } catch (err) {
@@ -43,7 +43,7 @@ export function loadNPCs(): NPC[] {
  */
 export function loadNPCDialogues(): Record<string, string[]> {
   try {
-    const filePath = join(__dirname, "..", "..", "data", "npc-dialogues.json");
+    const filePath = join(__dirname, "..", "data", "npc-dialogues.json");
     const raw = readFileSync(filePath, "utf-8");
     return JSON.parse(raw) as Record<string, string[]>;
   } catch (err) {
