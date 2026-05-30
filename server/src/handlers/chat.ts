@@ -68,12 +68,26 @@ export function handleChatSend(
     return;
   }
 
-  // 3. 检查接收者是否存在 · Check target exists
+  // 3. 检查接收者是否存在（好友允许离线消息）· Check target (friends get offline delivery)
   const target = zoneManager.getPlayer(data.to);
+  const isFriend = store.isFriend(senderId, data.to);
   if (!target) {
-    socket.emit("error", {
-      code: "PLAYER_NOT_FOUND",
-      message: "找不到该玩家",
+    // 未在 ZoneManager 中找到：检查是否为好友
+    if (!isFriend) {
+      socket.emit("error", {
+        code: "PLAYER_NOT_FOUND",
+        message: "找不到该玩家",
+      });
+      return;
+    }
+    // 好友离线：持久化消息，回显确认但不投递
+    const text1 = (data.text ?? "").trim();
+    const msg1 = store.saveMessage(senderId, data.to, text1);
+    socket.emit("chat.receive", {
+      from: senderId,
+      fromName: sender.name,
+      text: text1,
+      timestamp: msg1.timestamp,
     });
     return;
   }
@@ -96,28 +110,30 @@ export function handleChatSend(
     socket.data.chatCount = 1;
   }
 
-  // 5. 距离检查（曼哈顿 ≤ 3 格）· Distance check
-  const senderPos = zoneManager.getPlayerPosition(senderId);
-  const targetPos = zoneManager.getPlayerPosition(data.to);
+  // 5. 距离检查（曼哈顿 ≤ 3 格，好友豁免）· Distance check (friends exempt)
+  if (!isFriend) {
+    const senderPos = zoneManager.getPlayerPosition(senderId);
+    const targetPos = zoneManager.getPlayerPosition(data.to);
 
-  if (!senderPos || !targetPos) {
-    socket.emit("error", {
-      code: "OUT_OF_RANGE",
-      message: "无法获取位置信息",
-    });
-    return;
-  }
+    if (!senderPos || !targetPos) {
+      socket.emit("error", {
+        code: "OUT_OF_RANGE",
+        message: "无法获取位置信息",
+      });
+      return;
+    }
 
-  const dist =
-    Math.abs(senderPos.x - targetPos.x) +
-    Math.abs(senderPos.y - targetPos.y);
+    const dist =
+      Math.abs(senderPos.x - targetPos.x) +
+      Math.abs(senderPos.y - targetPos.y);
 
-  if (dist > INTERACTION_RANGE) {
-    socket.emit("error", {
-      code: "OUT_OF_RANGE",
-      message: "离太远了，走近一点再聊天吧",
-    });
-    return;
+    if (dist > INTERACTION_RANGE) {
+      socket.emit("error", {
+        code: "OUT_OF_RANGE",
+        message: "离太远了，走近一点再聊天吧",
+      });
+      return;
+    }
   }
 
   // 6. 文本校验（1-500 字符）· Validate text

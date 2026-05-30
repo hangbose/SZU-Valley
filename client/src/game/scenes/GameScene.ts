@@ -20,6 +20,28 @@ import { NPC } from "@/game/entities/NPC";
 import { useGameStore } from "@/ui/store/gameStore";
 
 // ---------------------------------------------------------------------------
+// Chat bubble tunables
+// ---------------------------------------------------------------------------
+
+/** Max characters shown in a chat bubble before truncation. */
+const BUBBLE_MAX_CHARS = 20;
+
+/** How long the bubble stays visible (ms). */
+const BUBBLE_DURATION = 30_000;
+
+/** When to start the fade-out (ms before removal). */
+const BUBBLE_FADE_START = 2000;
+
+interface BubbleData {
+  container: Phaser.GameObjects.Container;
+  bg: Phaser.GameObjects.Graphics;
+  text: Phaser.GameObjects.Text;
+  entityId: string;
+  createdAt: number;
+  onClick: (() => void) | null;
+}
+
+// ---------------------------------------------------------------------------
 // Tunables
 // ---------------------------------------------------------------------------
 
@@ -113,6 +135,9 @@ export class GameScene extends Phaser.Scene {
   // ---- Socket state ----
   private lastMoveSend = 0;
   private serverNpcSeeded = false;
+
+  // ---- Chat bubbles ----
+  private bubbles = new Map<string, BubbleData>();
 
   constructor() {
     super({ key: "GameScene" });
@@ -228,7 +253,8 @@ export class GameScene extends Phaser.Scene {
       rp.update(time, delta);
     }
 
-    // Proximity check (throttled to PROXIMITY_HZ)
+    // Update chat bubbles (follow entities, fade out)
+    this.updateBubbles(time);
     if (time - this.lastProximityCheck >= 1000 / PROXIMITY_HZ) {
       this.lastProximityCheck = time;
       this.runProximityCheck();
@@ -380,6 +406,27 @@ export class GameScene extends Phaser.Scene {
     // --- player.joined (echoed to self → update online count) ---
     socket.on("player.joined", () => {
       store().setOnlineCount(this.remotePlayers.size + 1);
+    });
+
+    // --- chat.receive → show bubble above sender ---
+    socket.on("chat.receive", (data: {
+      from: string; fromName: string; text: string;
+    }) => {
+      const px = this.getEntityPixelXY(data.from);
+      this.showBubble(data.from, px.x, px.y, data.text, () => {
+        store().setActiveChatId(data.from);
+      });
+    });
+
+    // --- npc.dialogue → show bubble above NPC ---
+    socket.on("npc.dialogue", (data: {
+      npcId: string; npcName: string; text: string;
+    }) => {
+      const entity = this.entities.get(data.npcId);
+      if (!entity) return;
+      const px = entity.x * 32 + 16;
+      const py = entity.y * 32 - 4;
+      this.showBubble(data.npcId, px, py, data.text, null);
     });
   }
 
@@ -620,6 +667,123 @@ export class GameScene extends Phaser.Scene {
         screenY: this.scale.height / 2,
       });
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Chat bubbles
+  // -----------------------------------------------------------------------
+
+  /** Create or replace a chat bubble above an entity. */
+  private showBubble(
+    entityId: string,
+    worldX: number,
+    worldY: number,
+    text: string,
+    onClick: (() => void) | null,
+  ): void {
+    // Replace existing bubble for this entity (only one at a time)
+    const existing = this.bubbles.get(entityId);
+    if (existing) {
+      existing.container.destroy();
+      this.bubbles.delete(entityId);
+    }
+
+    const truncated = text.length > BUBBLE_MAX_CHARS
+      ? text.slice(0, BUBBLE_MAX_CHARS) + "…"
+      : text;
+
+    // Background pill
+    const padX = 6;
+    const padY = 3;
+    const tempText = this.add.text(0, 0, truncated, {
+      fontSize: "11px",
+      color: "#ffffff",
+      fontFamily: "monospace",
+      wordWrap: { width: 180 },
+    });
+    const bw = Math.min(tempText.width, 180) + padX * 2;
+    const bh = tempText.height + padY * 2;
+    tempText.destroy();
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.75);
+    bg.fillRoundedRect(-bw / 2, -bh, bw, bh, 4);
+
+    const label = this.add.text(0, -bh + padY, truncated, {
+      fontSize: "11px",
+      color: "#ffffff",
+      fontFamily: "monospace",
+      wordWrap: { width: 180 },
+    }).setOrigin(0.5, 0);
+
+    const container = this.add.container(worldX, worldY - 20, [bg, label]);
+    container.setDepth(95);
+
+    if (onClick) {
+      const hitZone = this.add.zone(0, -bh / 2, bw, bh)
+        .setInteractive({ useHandCursor: true });
+      hitZone.on("pointerdown", onClick);
+      container.add(hitZone);
+    }
+
+    this.bubbles.set(entityId, {
+      container,
+      bg,
+      text: label,
+      entityId,
+      createdAt: this.time.now,
+      onClick,
+    });
+  }
+
+  /** Update all active bubbles: follow entities, fade old ones. */
+  private updateBubbles(time: number): void {
+    for (const [key, bubble] of this.bubbles) {
+      const age = time - bubble.createdAt;
+
+      // Fade out in last 2 seconds
+      if (age > BUBBLE_DURATION - BUBBLE_FADE_START) {
+        const alpha = Phaser.Math.Clamp(
+          (BUBBLE_DURATION - age) / BUBBLE_FADE_START,
+          0,
+          1,
+        );
+        bubble.container.setAlpha(alpha);
+      }
+
+      // Remove expired
+      if (age > BUBBLE_DURATION) {
+        bubble.container.destroy();
+        this.bubbles.delete(key);
+        continue;
+      }
+
+      // Follow entity
+      const px = this.getEntityPixelXY(key);
+      bubble.container.setPosition(px.x, px.y - 20);
+    }
+  }
+
+  /** Get the pixel position of an entity by its ID. */
+  private getEntityPixelXY(entityId: string): { x: number; y: number } {
+    // Check local player
+    if (entityId === useGameStore.getState().playerId) {
+      return { x: this.localPlayer.sprite.x, y: this.localPlayer.sprite.y };
+    }
+
+    // Check remote players for precise sub-tile position
+    const rp = this.remotePlayers.get(entityId);
+    if (rp) {
+      return { x: rp.sprite.x, y: rp.sprite.y };
+    }
+
+    // Check entities registry (NPCs, etc.)
+    const entity = this.entities.get(entityId);
+    if (entity) {
+      return { x: entity.x * 32 + 16, y: entity.y * 32 + 16 };
+    }
+
+    return { x: 0, y: 0 };
   }
 
   // -----------------------------------------------------------------------

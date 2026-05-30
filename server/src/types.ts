@@ -17,6 +17,7 @@ export interface MoveData {
 export interface JoinData {
   name: string;
   avatar: string;
+  playerId?: string; // 方案 A：localStorage 持久化身份（可选）
 }
 
 /** NPC 对话数据（客户端→服务端）· NPC talk payload from client */

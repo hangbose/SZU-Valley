@@ -81,23 +81,41 @@ export async function handleJoin(
       return;
     }
 
-    // 4. 分配 ID 和出生点 · Assign ID and spawn
-    const playerId = crypto.randomUUID();
+    // 4. 分配 ID（方案 A：支持 localStorage 持久化身份）
+    //    Use persisted playerId if available, otherwise generate new
+    const name = data.name.trim();
+    const persistedId = data.playerId?.trim();
+    let playerId: string;
+
+    if (persistedId && store.getPlayer(persistedId)) {
+      // 回头客：复用旧 ID，更新名字和头像
+      playerId = persistedId;
+      store.updatePlayer(playerId, name, avatar);
+      console.log(`[join] Returning player "${name}" (${playerId})`);
+    } else if (persistedId) {
+      // 客户端有 ID 但服务器不认识（重启后数据丢失）：用此 ID 新建
+      playerId = persistedId;
+    } else {
+      // 新玩家
+      playerId = crypto.randomUUID();
+    }
+
     const spawn = { x: 100, y: 75 };
 
     // 5. 先注册到 Zone Manager（失败不会留下 Store 孤儿记录）
-    //    Register with ZoneManager first (failure won't leave orphaned Store record)
     const player = zoneManager.registerPlayer(
       socket,
       playerId,
-      data.name.trim(),
+      name,
       avatar,
       spawn.x,
       spawn.y
     );
 
-    // 6. 再写入数据存储 (A2) · Write to store after ZoneManager succeeds
-    store.createPlayer(playerId, data.name.trim(), avatar);
+    // 6. 写/更新数据存储 (A2) · Write or update store
+    if (!store.getPlayer(playerId)) {
+      store.createPlayer(playerId, name, avatar);
+    }
 
     // 7. 更新 Redis (A1) · Update Redis
     await redis.addOnlinePlayer(playerId);

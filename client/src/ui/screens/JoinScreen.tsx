@@ -5,7 +5,7 @@
  * Validates name length (2–12 chars) and requires an avatar selection.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useGameStore } from "@/ui/store/gameStore";
 import { connect } from "@/network/socket";
 
@@ -13,12 +13,23 @@ const AVATARS = Array.from({ length: 8 }, (_, i) => `avatar_${String(i + 1).padS
 
 const JOIN_TIMEOUT = 8000; // 8 秒超时
 
+// localStorage keys for session persistence (方案 A)
+const LS_PLAYER_ID = "szu_valley_playerId";
+const LS_PLAYER_NAME = "szu_valley_playerName";
+const LS_PLAYER_AVATAR = "szu_valley_playerAvatar";
+
 export function JoinScreen() {
   const setPhase = useGameStore((s) => s.setPhase);
   const setPlayer = useGameStore((s) => s.setPlayer);
   const setSpawn = useGameStore((s) => s.setSpawn);
-  const [name, setName] = useState("");
-  const [avatar, setAvatar] = useState(AVATARS[0]);
+
+  // Restore saved identity on first visit
+  const [name, setName] = useState(() => {
+    try { return localStorage.getItem(LS_PLAYER_NAME) ?? ""; } catch { return ""; }
+  });
+  const [avatar, setAvatar] = useState(() => {
+    try { return localStorage.getItem(LS_PLAYER_AVATAR) ?? AVATARS[0]; } catch { return AVATARS[0]; }
+  });
   const [error, setError] = useState("");
   const [joining, setJoining] = useState(false);
 
@@ -43,6 +54,13 @@ export function JoinScreen() {
       if (done) return;
       cleanup();
 
+      // Save identity to localStorage for next visit
+      try {
+        localStorage.setItem(LS_PLAYER_ID, data.playerId);
+        localStorage.setItem(LS_PLAYER_NAME, name.trim());
+        localStorage.setItem(LS_PLAYER_AVATAR, avatar);
+      } catch { /* localStorage unavailable */ }
+
       setPlayer(data.playerId, name.trim(), avatar);
       setSpawn(data.spawn.x, data.spawn.y);
       setPhase("game");
@@ -66,8 +84,11 @@ export function JoinScreen() {
       setJoining(false);
     }, JOIN_TIMEOUT);
 
-    // Fire!
-    socket.emit("player.join", { name: name.trim(), avatar });
+    // Fire (include saved playerId for session restoration)
+    const savedPlayerId = (() => {
+      try { return localStorage.getItem(LS_PLAYER_ID)?.trim() || undefined; } catch { return undefined; }
+    })();
+    socket.emit("player.join", { name: name.trim(), avatar, playerId: savedPlayerId });
   }, [isValid, joining, name, avatar, setPlayer, setPhase]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

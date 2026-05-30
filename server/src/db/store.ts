@@ -78,6 +78,15 @@ export class DataStore {
     if (p) p.isOnline = online;
   }
 
+  /** 更新玩家名字和头像（回头客）· Update name + avatar for returning player */
+  updatePlayer(id: string, name: string, avatar: string): void {
+    const p = this.players.get(id);
+    if (p) {
+      p.name = name;
+      p.avatar = avatar;
+    }
+  }
+
   /** 设置玩家标签 · Set player tags */
   setTags(id: string, tags: string[]): void {
     const p = this.players.get(id);

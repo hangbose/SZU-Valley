@@ -52,26 +52,51 @@ export function handleProfileView(
   }
 
   const target = zoneManager.getPlayer(targetId);
+  const isFriend = store.isFriend(requesterId, targetId);
+
+  // 好友离线 → 从 DataStore 读取资料
   if (!target) {
-    socket.emit("error", {
-      code: "PLAYER_NOT_FOUND",
-      message: "找不到该玩家",
+    if (!isFriend) {
+      socket.emit("error", {
+        code: "PLAYER_NOT_FOUND",
+        message: "找不到该玩家",
+      });
+      return;
+    }
+    // 离线好友：从 store 获取资料
+    const offlineProfile = store.getPlayer(targetId);
+    if (!offlineProfile) {
+      socket.emit("error", {
+        code: "PLAYER_NOT_FOUND",
+        message: "找不到该玩家",
+      });
+      return;
+    }
+    socket.emit("profile.view", {
+      id: offlineProfile.id,
+      name: offlineProfile.name,
+      avatar: offlineProfile.avatar,
+      tags: offlineProfile.tags ?? [],
+      friendsCount: offlineProfile.friendsCount ?? 0,
+      isOnline: false,
     });
     return;
   }
 
-  // 曼哈顿距离检查（必须在 3 格以内）
-  const dist =
-    Math.abs(requester.x - target.x) + Math.abs(requester.y - target.y);
-  if (dist > INTERACTION_RANGE) {
-    socket.emit("error", {
-      code: "OUT_OF_RANGE",
-      message: "离太远了，走近一点再看吧",
-    });
-    return;
+  // 曼哈顿距离检查（3 格以内，好友豁免）· Distance check (friends exempt)
+  if (!isFriend) {
+    const dist =
+      Math.abs(requester.x - target.x) + Math.abs(requester.y - target.y);
+    if (dist > INTERACTION_RANGE) {
+      socket.emit("error", {
+        code: "OUT_OF_RANGE",
+        message: "离太远了，走近一点再看吧",
+      });
+      return;
+    }
   }
 
-  // 从 store 读取真实资料 + ZoneManager 确认在线状态
+  // 在线玩家：实时数据
   const profile = store.getPlayer(targetId);
 
   socket.emit("profile.view", {
@@ -80,6 +105,6 @@ export function handleProfileView(
     avatar: target.avatar,
     tags: profile?.tags ?? [],
     friendsCount: profile?.friendsCount ?? 0,
-    isOnline: zoneManager.isOnline(targetId),
+    isOnline: true,
   });
 }
