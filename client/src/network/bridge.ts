@@ -55,7 +55,7 @@ export interface GameToUIEvents {
   "player-clicked": { playerId: string; screenX: number; screenY: number };
 
   /** NPC clicked on canvas. UI shows NPC dialogue. */
-  "npc-clicked": { npcId: string; screenX: number; screenY: number };
+  "npc-clicked": { npcId: string; npcName: string; screenX: number; screenY: number };
 
   /** Local player's tile position changed (throttled ~10/s). */
   "position-changed": { x: number; y: number; zoneName: string };

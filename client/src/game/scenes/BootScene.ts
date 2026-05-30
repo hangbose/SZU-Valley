@@ -1,11 +1,16 @@
 /**
- * BootScene — Preloads all assets before the game starts.
+ * BootScene — Preloads assets before the game starts.
  *
- * First scene in the Phaser pipeline. Shows a loading bar while fetching
- * spritesheets, tilesets, and map JSON from public/assets/.
+ * Loads the tileset PNG and Tiled JSON map that D has already delivered.
+ * Character sprites are loaded later when D provides them; for now we use
+ * placeholder graphics (coloured rectangles) in the entity classes.
  */
 
 import Phaser from "phaser";
+
+/** Tileset image dimensions (pixels). */
+const TILESET_WIDTH = 128;
+const TILESET_HEIGHT = 96;
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -13,30 +18,36 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload(): void {
-    // TODO: Load actual assets when D delivers them.
-    // For now, just show a simple loading text and transition.
     const { width, height } = this.cameras.main;
 
+    // --- Loading bar UI ---
     const loadingText = this.add
-      .text(width / 2, height / 2, "Loading...", {
+      .text(width / 2, height / 2 - 10, "Loading...", {
         fontSize: "24px",
         color: "#ffffff",
       })
       .setOrigin(0.5);
 
-    // Placeholder loading bar
-    const barBg = this.add.rectangle(width / 2, height / 2 + 40, 320, 20, 0x333333);
+    const barW = 320;
+    const barH = 20;
+    const barBg = this.add.rectangle(
+      width / 2,
+      height / 2 + 30,
+      barW,
+      barH,
+      0x333333,
+    );
     const barFill = this.add.rectangle(
-      width / 2 - 160,
-      height / 2 + 40,
+      width / 2 - barW / 2,
+      height / 2 + 30,
       0,
-      20,
+      barH,
       0x4caf50,
     );
     barFill.setOrigin(0, 0.5);
 
     this.load.on("progress", (value: number) => {
-      barFill.width = 320 * value;
+      barFill.width = barW * value;
     });
 
     this.load.on("complete", () => {
@@ -45,19 +56,32 @@ export class BootScene extends Phaser.Scene {
       barFill.destroy();
     });
 
-    // --- Asset stubs (uncomment when D delivers assets) ---
-    // this.load.image("tileset", "assets/tilesets/campus-tileset.png");
-    // this.load.tilemapTiledJSON("map", "assets/maps/yuehai-campus.json");
-    // for (let i = 1; i <= 8; i++) {
-    //   const key = `avatar_${String(i).padStart(2, "0")}`;
-    //   this.load.spritesheet(key, `assets/sprites/avatars/${key}.png`, {
-    //     frameWidth: 32,
-    //     frameHeight: 48,
-    //   });
-    // }
+    // --- Real assets from D ---
+    // Tileset image (128×96 px, 12 tiles of 32×32)
+    this.load.image("campus-tileset", "assets/tilesets/campus-tileset.png");
+
+    // Tiled map JSON (80×60 tiles = 2560×1920 px world)
+    this.load.tilemapTiledJSON("campus-test", "assets/maps/campus-test.json");
+
+    // TODO: load avatar spritesheets and NPC sprites when D delivers them
+    // this.load.spritesheet("avatar_01", "assets/sprites/avatars/avatar_01.png", {
+    //   frameWidth: 32,
+    //   frameHeight: 48,
+    // });
   }
 
   create(): void {
+    // Verify tileset loaded at correct size
+    const tex = this.textures.get("campus-tileset").getSourceImage();
+    if (
+      tex.width !== TILESET_WIDTH ||
+      tex.height !== TILESET_HEIGHT
+    ) {
+      console.warn(
+        `[BootScene] Unexpected tileset size: ${tex.width}×${tex.height} (expected ${TILESET_WIDTH}×${TILESET_HEIGHT})`,
+      );
+    }
+
     this.scene.start("GameScene");
   }
 }

@@ -19,6 +19,7 @@ import { ChatPanel } from "@/ui/components/ChatPanel";
 import { ProfileCard } from "@/ui/components/ProfileCard";
 import { FriendsList } from "@/ui/components/FriendsList";
 import { FriendToast } from "@/ui/components/FriendToast";
+import { NPCDialogue } from "@/ui/components/NPCDialogue";
 
 export function App() {
   const phase = useGameStore((s) => s.phase);
@@ -56,6 +57,7 @@ export function App() {
         </div>
         <ChatPanel />
         <ProfileCard />
+        <NPCDialogue />
         <FriendToast />
       </div>
     </div>
@@ -89,6 +91,6 @@ const styles: Record<string, React.CSSProperties> = {
     top: 48,
     bottom: 0,
     width: 200,
-    pointerEvents: "auto",
+    pointerEvents: "none",
   },
 };

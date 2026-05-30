@@ -100,7 +100,7 @@ export const useGameStore = create<GameState>((set) => ({
   // World
   onlineCount: 0,
   zoneName: "",
-  connectionStatus: "green" as ConnectionStatus,
+  connectionStatus: "red" as ConnectionStatus,
   setOnlineCount: (n) => set({ onlineCount: n }),
   setZoneName: (name) => set({ zoneName: name }),
   setConnectionStatus: (status) => set({ connectionStatus: status }),
