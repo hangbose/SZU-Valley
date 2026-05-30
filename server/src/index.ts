@@ -15,6 +15,7 @@ import { ZoneManager, getZoneForPosition, getZoneNeighbors } from "./zone-manage
 import { ConnectionGuard } from "./connection-guard.js";
 import { handleMovement, sendZoneSnapshot } from "./handlers/movement.js";
 import { handleNPCTalk, loadNPCs, loadNPCDialogues } from "./handlers/npc.js";
+import { INTERACTION_RANGE } from "./types.js";
 import type { JoinData } from "./types.js";
 
 // ---- 配置 · Configuration ----
@@ -100,9 +101,9 @@ io.on("connection", (socket) => {
       const neighborZones = getZoneNeighbors(zoneId);
       sendZoneSnapshot(socket, neighborZones, zoneManager, playerId, npcs);
 
-      // 8. 广播"新玩家加入"给区域内的其他人
+      // 8. 广播"新玩家出现"给区域内的其他人
       for (const z of neighborZones) {
-        socket.to(`zone:${z}`).emit("player.joined", {
+        socket.to(`zone:${z}`).emit("player.appeared", {
           id: playerId,
           name: player.name,
           avatar: player.avatar,
@@ -133,6 +134,41 @@ io.on("connection", (socket) => {
   // ============================================================
   socket.on("npc.talk", (data: { npcId: string }) => {
     handleNPCTalk(socket, data, zoneManager, npcs, dialogues);
+  });
+
+  // ============================================================
+  // PROFILE VIEW · 查看附近玩家资料
+  // ============================================================
+  socket.on("profile.view", (data: { id: string }) => {
+    const requesterId = zoneManager.getPlayerIdBySocket(socket.id);
+    if (!requesterId) {
+      socket.emit("error", { code: "PLAYER_NOT_FOUND", message: "你还未加入游戏" });
+      return;
+    }
+
+    const requester = zoneManager.getPlayer(requesterId);
+    const target = zoneManager.getPlayer(data.id);
+    if (!requester || !target) {
+      socket.emit("error", { code: "PLAYER_NOT_FOUND", message: "找不到该玩家" });
+      return;
+    }
+
+    // 曼哈顿距离检查（必须在 3 格以内）
+    const dist = Math.abs(requester.x - target.x) + Math.abs(requester.y - target.y);
+    if (dist > INTERACTION_RANGE) {
+      socket.emit("error", { code: "OUT_OF_RANGE", message: "离太远了，走近一点再看吧" });
+      return;
+    }
+
+    // 返回资料（tags + friendsCount 由 A2 后续填充）
+    socket.emit("profile.view", {
+      id: target.id,
+      name: target.name,
+      avatar: target.avatar,
+      tags: [],           // TODO: A2 从 PostgreSQL 读取
+      friendsCount: 0,    // TODO: A2 从 friend system 读取
+      isOnline: true,
+    });
   });
 
   // ============================================================

@@ -116,9 +116,9 @@ export function handleMovement(
       socket.to(zoneRoom(z)).emit("player.left", { id: playerId });
     }
 
-    // 广播"加入"到新邻域
+    // 广播"出现"到新邻域
     for (const z of newNeighbors) {
-      socket.to(zoneRoom(z)).emit("player.joined", {
+      socket.to(zoneRoom(z)).emit("player.appeared", {
         id: playerId,
         name: player.name,
         avatar: player.avatar,

@@ -232,10 +232,10 @@ socket.on("zone.players", (data) => {
   log("📍 附近 " + data.players.length + " 个玩家: " + (names || "(无人)"), "log-data");
 });
 
-// 其他人加入附近
-socket.on("player.joined", (data) => {
+// 其他人出现在附近
+socket.on("player.appeared", (data) => {
   if (data.id !== myPlayerId) {
-    log("👋 " + data.name + " 加入附近 (" + data.x.toFixed(0) + "," + data.y.toFixed(0) + ")", "log-in");
+    log("👋 " + data.name + " 出现在附近 (" + data.x.toFixed(0) + "," + data.y.toFixed(0) + ")", "log-in");
   }
 });
 
