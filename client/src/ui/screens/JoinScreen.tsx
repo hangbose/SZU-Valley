@@ -17,11 +17,35 @@ const JOIN_TIMEOUT = 8000; // 8 秒超时
 const LS_PLAYER_ID = "szu_valley_playerId";
 const LS_PLAYER_NAME = "szu_valley_playerName";
 const LS_PLAYER_AVATAR = "szu_valley_playerAvatar";
+const LS_PLAYER_TAGS = "szu_valley_playerTags";
+
+const MAX_TAGS = 10;
+const MAX_TAG_LENGTH = 24;
+
+/** Render a preview of an avatar spritesheet — shows the first frame (down-idle). */
+function avatarPreview(avatarKey: string) {
+  const src = `/assets/sprites/avatars/${avatarKey}.png`;
+  return (
+    <img
+      src={src}
+      alt={avatarKey}
+      style={{
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        objectPosition: "left top",
+        imageRendering: "pixelated",
+      }}
+    />
+  );
+}
 
 export function JoinScreen() {
   const setPhase = useGameStore((s) => s.setPhase);
   const setPlayer = useGameStore((s) => s.setPlayer);
   const setSpawn = useGameStore((s) => s.setSpawn);
+  const setFriends = useGameStore((s) => s.setFriends);
+  const setOwnTags = useGameStore((s) => s.setOwnTags);
 
   // Restore saved identity on first visit
   const [name, setName] = useState(() => {
@@ -30,10 +54,35 @@ export function JoinScreen() {
   const [avatar, setAvatar] = useState(() => {
     try { return localStorage.getItem(LS_PLAYER_AVATAR) ?? AVATARS[0]; } catch { return AVATARS[0]; }
   });
+  const [tags, setTags] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(LS_PLAYER_TAGS) ?? "[]"); } catch { return []; }
+  });
+  const [tagInput, setTagInput] = useState("");
   const [error, setError] = useState("");
   const [joining, setJoining] = useState(false);
 
   const isValid = name.trim().length >= 2 && name.trim().length <= 12;
+
+  const addTag = useCallback(() => {
+    const t = tagInput.trim();
+    if (!t || t.length > MAX_TAG_LENGTH) return;
+    if (tags.includes(t)) return;
+    if (tags.length >= MAX_TAGS) return;
+    const next = [...tags, t];
+    setTags(next);
+    setTagInput("");
+  }, [tagInput, tags]);
+
+  const removeTag = useCallback((t: string) => {
+    setTags((prev) => prev.filter((x) => x !== t));
+  }, []);
+
+  const handleTagKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addTag();
+    }
+  }, [addTag]);
 
   const handleJoin = useCallback(() => {
     if (!isValid || joining) return;
@@ -50,7 +99,11 @@ export function JoinScreen() {
     };
 
     // Success: server assigned us an ID and spawn point
-    socket.on("player.joined", (data: { playerId: string; spawn: { x: number; y: number } }) => {
+    socket.on("player.joined", (data: {
+      playerId: string;
+      spawn: { x: number; y: number };
+      friends?: Array<{ id: string; name: string; avatar: string; isOnline: boolean }>;
+    }) => {
       if (done) return;
       cleanup();
 
@@ -59,10 +112,15 @@ export function JoinScreen() {
         localStorage.setItem(LS_PLAYER_ID, data.playerId);
         localStorage.setItem(LS_PLAYER_NAME, name.trim());
         localStorage.setItem(LS_PLAYER_AVATAR, avatar);
+        localStorage.setItem(LS_PLAYER_TAGS, JSON.stringify(tags));
       } catch { /* localStorage unavailable */ }
 
       setPlayer(data.playerId, name.trim(), avatar);
+      setOwnTags(tags);
       setSpawn(data.spawn.x, data.spawn.y);
+      if (data.friends && data.friends.length > 0) {
+        setFriends(data.friends);
+      }
       setPhase("game");
     });
 
@@ -88,8 +146,8 @@ export function JoinScreen() {
     const savedPlayerId = (() => {
       try { return localStorage.getItem(LS_PLAYER_ID)?.trim() || undefined; } catch { return undefined; }
     })();
-    socket.emit("player.join", { name: name.trim(), avatar, playerId: savedPlayerId });
-  }, [isValid, joining, name, avatar, setPlayer, setPhase]);
+    socket.emit("player.join", { name: name.trim(), avatar, playerId: savedPlayerId, tags });
+  }, [isValid, joining, name, avatar, tags, setPlayer, setPhase]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && isValid) handleJoin();
@@ -134,10 +192,55 @@ export function JoinScreen() {
                 onClick={() => setAvatar(a)}
                 title={a}
               >
-                {a.replace("avatar_", "")}
+                {avatarPreview(a)}
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Tags */}
+        <div style={styles.field}>
+          <label style={styles.label}>Tags ({tags.length}/{MAX_TAGS})</label>
+          <div style={styles.tagInputRow}>
+            <input
+              style={{ ...styles.input, flex: 1 }}
+              type="text"
+              placeholder="Add a tag (e.g. 前端, 找队友)"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value.slice(0, MAX_TAG_LENGTH))}
+              onKeyDown={handleTagKeyDown}
+              maxLength={MAX_TAG_LENGTH}
+              disabled={tags.length >= MAX_TAGS}
+            />
+            <button
+              type="button"
+              onClick={addTag}
+              disabled={!tagInput.trim() || tags.length >= MAX_TAGS}
+              style={{
+                ...styles.addTagBtn,
+                ...((!tagInput.trim() || tags.length >= MAX_TAGS) ? styles.addTagBtnDisabled : {}),
+              }}
+            >
+              +
+            </button>
+          </div>
+          {tags.length > 0 && (
+            <div style={styles.tagChips}>
+              {tags.map((t) => (
+                <span key={t} style={styles.tagChip}>
+                  {t}
+                  <button
+                    type="button"
+                    onClick={() => removeTag(t)}
+                    style={styles.tagRemove}
+                    title={`移除 ${t}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Join button */}
@@ -263,6 +366,55 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#555",
     marginTop: 16,
     marginBottom: 0,
+  },
+  tagInputRow: {
+    display: "flex",
+    gap: 8,
+  },
+  addTagBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    border: "1px solid rgba(76, 175, 80, 0.35)",
+    background: "rgba(76, 175, 80, 0.15)",
+    color: "#4caf50",
+    cursor: "pointer",
+    fontSize: 22,
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  addTagBtnDisabled: {
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.03)",
+    color: "#444",
+    cursor: "not-allowed",
+  },
+  tagChips: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 10,
+  },
+  tagChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "4px 8px",
+    borderRadius: 6,
+    border: "1px solid rgba(76, 175, 80, 0.3)",
+    background: "rgba(76, 175, 80, 0.12)",
+    color: "#a5d6a7",
+    fontSize: 12,
+    fontWeight: 600,
+  },
+  tagRemove: {
+    background: "none",
+    border: "none",
+    color: "#888",
+    cursor: "pointer",
+    fontSize: 16,
+    lineHeight: "14px",
+    padding: "0 2px",
   },
 };
 

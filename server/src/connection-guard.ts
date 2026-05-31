@@ -2,10 +2,11 @@
 // A1 · 连接守卫 · Connection Guard
 // ============================================================
 //
-// "看门人"——在玩家加入之前检查两件事：
-// The "bouncer" — checks two things before letting a player in:
+// "看门人"——在玩家加入之前检查容量：
+// The "bouncer" — checks capacity before letting a player in:
 //   1. 服务器是否已满 (50 人上限) · Is the server full? (50 cap)
-//   2. 名字是否已被占用 · Is the name already taken?
+// （同名不限制——允许多设备/多标签页用同一名字登录）
+// (Duplicate names allowed — multi-device / multi-tab with same name is OK)
 
 import { RedisClient } from "./redis.js";
 import { ZoneManager } from "./zone-manager.js";
@@ -25,25 +26,14 @@ export class ConnectionGuard {
    * Returns null = allowed; ErrorResponse = rejected.
    */
   async checkJoinAllowed(
-    name: string
+    _name: string
   ): Promise<{ code: string; message: string } | null> {
-    // 1. 检查服务器容量 · Check server capacity
+    // 检查服务器容量 · Check server capacity
     const count = await this.redis.getOnlineCount();
     if (count >= MAX_PLAYERS) {
       return {
         code: "SERVER_FULL",
         message: "服务器已满，请稍后再试",
-      };
-    }
-
-    // 2. 检查名字唯一性 · Check name uniqueness
-    //    遍历当前在线玩家，看有没有重名
-    const allPlayers = this.zoneManager.getAllPlayers();
-    const nameTaken = allPlayers.some((p) => p.name === name);
-    if (nameTaken) {
-      return {
-        code: "NAME_TAKEN",
-        message: "这个名字已被使用，换一个吧",
       };
     }
 

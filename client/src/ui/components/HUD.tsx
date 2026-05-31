@@ -37,8 +37,11 @@ export function HUD() {
   const onlineCount = useGameStore((s) => s.onlineCount);
   const zoneName = useGameStore((s) => s.zoneName);
   const connectionStatus = useGameStore((s) => s.connectionStatus);
+  const playerId = useGameStore((s) => s.playerId);
+  const playerName = useGameStore((s) => s.playerName);
   const setOnlineCount = useGameStore((s) => s.setOnlineCount);
   const setZoneName = useGameStore((s) => s.setZoneName);
+  const setProfileTarget = useGameStore((s) => s.setProfileTarget);
   const [displayedStatus, setDisplayedStatus] = useState<ConnectionStatus>(
     connectionStatus === "red" ? "yellow" : connectionStatus,
   );
@@ -116,6 +119,16 @@ export function HUD() {
         aria-live="polite"
         title={statusLabel}
       >
+        {playerName && (
+          <button
+            type="button"
+            onClick={() => playerId && setProfileTarget(playerId)}
+            style={styles.profileBtn}
+            title="我的资料 · My Profile"
+          >
+            {playerName}
+          </button>
+        )}
         <span
           style={{
             ...styles.statusDot,
@@ -230,5 +243,21 @@ const styles: Record<string, CSSProperties> = {
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+  },
+  profileBtn: {
+    maxWidth: 100,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    border: "1px solid rgba(76, 175, 80, 0.35)",
+    borderRadius: 4,
+    background: "rgba(76, 175, 80, 0.15)",
+    color: "#4caf50",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 700,
+    padding: "2px 8px",
+    marginRight: 8,
+    pointerEvents: "auto",
   },
 };

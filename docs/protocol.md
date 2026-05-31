@@ -192,6 +192,12 @@ Socket.IO 连接建立后发送一次。请求进入地图。
     x: number;
     y: number;
   };
+  friends: Array<{     // 现有好友列表（客户端恢复 UI 用）
+    id: string;        //   existing friend list (for client UI restoration)
+    name: string;
+    avatar: string;
+    isOnline: boolean;
+  }>;
 }
 ```
 

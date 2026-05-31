@@ -29,12 +29,17 @@ interface RemoteProfileState {
 }
 
 const PROFILE_TIMEOUT_MS = 5000;
+const MAX_TAGS = 10;
+const MAX_TAG_LENGTH = 24;
 
 export function ProfileCard() {
   const profileTarget = useGameStore((s) => s.profileTarget);
   const setProfileTarget = useGameStore((s) => s.setProfileTarget);
   const activeChatId = useGameStore((s) => s.activeChatId);
   const setActiveChatId = useGameStore((s) => s.setActiveChatId);
+  const setPeerName = useGameStore((s) => s.setPeerName);
+  const storeOwnTags = useGameStore((s) => s.ownTags);
+  const setOwnTagsStore = useGameStore((s) => s.setOwnTags);
   const friends = useGameStore((s) => s.friends);
   const playerId = useGameStore((s) => s.playerId);
   const playerName = useGameStore((s) => s.playerName);
@@ -48,6 +53,9 @@ export function ProfileCard() {
   });
   const [avatarFailureTarget, setAvatarFailureTarget] = useState<string | null>(null);
   const [requestSentTarget, setRequestSentTarget] = useState<string | null>(null);
+  const [friendError, setFriendError] = useState<string>("");
+  const [ownTags, setOwnTags] = useState<string[]>(storeOwnTags);
+  const [tagInput, setTagInput] = useState("");
   const cardRef = useRef<HTMLDivElement>(null);
 
   const isOwnProfile = Boolean(profileTarget && profileTarget === playerId);
@@ -66,11 +74,11 @@ export function ProfileCard() {
       id: profileTarget,
       name: playerName.trim() || "我 · Me",
       avatar: playerAvatar,
-      tags: [],
+      tags: ownTags,
       friendsCount: friends.length,
       isOnline: true,
     };
-  }, [friends.length, playerAvatar, playerId, playerName, profileTarget]);
+  }, [friends.length, ownTags, playerAvatar, playerId, playerName, profileTarget]);
 
   const remoteStateForTarget = useMemo<RemoteProfileState>(() => {
     if (!profileTarget || profileTarget === playerId) {
@@ -109,14 +117,16 @@ export function ProfileCard() {
 
   const handleAddFriend = useCallback(() => {
     if (!profileTarget || isOwnProfile || isAlreadyFriends || requestSent) return;
+    setFriendError("");
+    setRequestSentTarget(profileTarget); // optimistic — works with old & new server
     getSocket().emit("friend.request", { to: profileTarget });
-    setRequestSentTarget(profileTarget);
   }, [isAlreadyFriends, isOwnProfile, profileTarget, requestSent]);
 
   useEffect(() => {
     if (!profileTarget || profileTarget === playerId) return;
 
     let cancelled = false;
+    let loaded = false; // guards timeout from overriding a successful load
     const socket = getSocket();
 
     const updateRemoteState = (state: Omit<RemoteProfileState, "targetId">) => {
@@ -129,11 +139,15 @@ export function ProfileCard() {
         return;
       }
 
+      loaded = true;
+      const name = payload.name || `Player ${payload.id.slice(0, 8)}`;
+      setPeerName(payload.id, name); // cache for ChatPanel to use
+
       updateRemoteState({
         viewState: "ready",
         profile: {
           id: payload.id,
-          name: payload.name || `Player ${payload.id.slice(0, 8)}`,
+          name,
           avatar: payload.avatar || "",
           tags: normaliseTags(payload.tags),
           friendsCount: typeof payload.friendsCount === "number" ? payload.friendsCount : 0,
@@ -144,7 +158,7 @@ export function ProfileCard() {
     };
 
     const handleError = (payload: unknown) => {
-      if (cancelled || !isErrorPayload(payload)) return;
+      if (cancelled || loaded || !isErrorPayload(payload)) return;
 
       if (payload.code === "PLAYER_NOT_FOUND") {
         updateRemoteState({
@@ -176,6 +190,7 @@ export function ProfileCard() {
     socket.emit("profile.view", { id: profileTarget });
 
     const timeoutId = window.setTimeout(() => {
+      if (loaded) return; // profile already loaded, skip timeout error
       updateRemoteState({
         viewState: "error",
         profile: null,
@@ -188,6 +203,106 @@ export function ProfileCard() {
       window.clearTimeout(timeoutId);
       socket.off("profile.view", handleProfileView);
       socket.off("error", handleError);
+    };
+  }, [playerId, profileTarget]);
+
+  // Reset friend request state when target changes
+  useEffect(() => {
+    setRequestSentTarget(null);
+    setFriendError("");
+  }, [profileTarget]);
+
+  // Fetch own tags when viewing own profile
+  useEffect(() => {
+    if (!isOwnProfile || !playerId) return;
+
+    let cancelled = false;
+    const socket = getSocket();
+
+    const handleOwnProfile = (payload: unknown) => {
+      if (cancelled || !isProfilePayload(payload) || payload.id !== playerId) return;
+      const tags = normaliseTags(payload.tags);
+      setOwnTags(tags);
+    };
+
+    const handleUpdated = (payload: unknown) => {
+      if (cancelled || !isRecord(payload)) return;
+      const tags = normaliseTags((payload as Record<string, unknown>).tags);
+      if (tags.length > 0 || Array.isArray((payload as Record<string, unknown>).tags)) {
+        setOwnTags(tags);
+      }
+    };
+
+    socket.on("profile.view", handleOwnProfile);
+    socket.on("profile.updated", handleUpdated);
+    socket.emit("profile.view", { id: playerId });
+
+    return () => {
+      cancelled = true;
+      socket.off("profile.view", handleOwnProfile);
+      socket.off("profile.updated", handleUpdated);
+    };
+  }, [isOwnProfile, playerId]);
+
+  const emitTags = useCallback((next: string[]) => {
+    setOwnTags(next);
+    setOwnTagsStore(next);
+    getSocket().emit("profile.update", { tags: next });
+  }, [setOwnTagsStore]);
+
+  const addTag = useCallback(() => {
+    const t = tagInput.trim();
+    if (!t || t.length > MAX_TAG_LENGTH || ownTags.includes(t) || ownTags.length >= MAX_TAGS) return;
+    emitTags([...ownTags, t]);
+    setTagInput("");
+  }, [tagInput, ownTags, emitTags]);
+
+  const removeTag = useCallback((t: string) => {
+    emitTags(ownTags.filter((x) => x !== t));
+  }, [ownTags, emitTags]);
+
+  const handleTagKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") { e.preventDefault(); addTag(); }
+  }, [addTag]);
+
+  // Listen for friend request confirmations (scoped to current profileTarget)
+  useEffect(() => {
+    if (!profileTarget || profileTarget === playerId) return;
+
+    const socket = getSocket();
+
+    const rollbackRequestSent = (reason: string) => {
+      setRequestSentTarget(null); // rollback optimistic update
+      setFriendError(reason);
+    };
+
+    const handleFriendSent = (data: { to: string }) => {
+      if (data.to === profileTarget) {
+        setRequestSentTarget(profileTarget);
+        setFriendError("");
+      }
+    };
+
+    const handleFriendError = (data: { code?: string; message?: string }) => {
+      rollbackRequestSent(data?.message ?? "好友请求失败 · Friend request failed");
+    };
+
+    // Also catch friend errors from old server (which uses 'error' channel)
+    const handleLegacyError = (data: { code?: string; message?: string }) => {
+      const friendCodes = ["ALREADY_FRIENDS", "RATE_LIMITED", "OUT_OF_RANGE", "PLAYER_NOT_FOUND"];
+      if (data?.code && friendCodes.includes(data.code)) {
+        rollbackRequestSent(data?.message ?? "好友请求失败 · Friend request failed");
+      }
+    };
+
+    socket.on("friend.sent", handleFriendSent);
+    socket.on("friend.error", handleFriendError);
+    socket.on("error", handleLegacyError);
+
+    return () => {
+      socket.off("friend.sent", handleFriendSent);
+      socket.off("friend.error", handleFriendError);
+      socket.off("error", handleLegacyError);
     };
   }, [playerId, profileTarget]);
 
@@ -254,7 +369,18 @@ export function ProfileCard() {
             <h3 style={styles.name}>{profile.name}</h3>
             <StatusIndicator isOnline={profile.isOnline} />
 
-            <Tags tags={profile.tags} />
+            {isOwnProfile ? (
+              <OwnTagsEditor
+                selectedTags={ownTags}
+                tagInput={tagInput}
+                onTagInputChange={setTagInput}
+                onAdd={addTag}
+                onRemove={removeTag}
+                onKeyDown={handleTagKeyDown}
+              />
+            ) : (
+              <Tags tags={profile.tags} />
+            )}
 
             <p style={styles.friendCount}>
               {formatFriendsCount(profile.friendsCount)}
@@ -288,6 +414,7 @@ export function ProfileCard() {
                       ? "已发送 · Sent"
                       : "添加好友 · Add Friend"}
                 </button>
+                {friendError && <p style={styles.friendError}>{friendError}</p>}
               </div>
             )}
           </>
@@ -381,6 +508,71 @@ function Tags({ tags }: { tags: string[] }) {
           {tag}
         </span>
       ))}
+    </div>
+  );
+}
+
+function OwnTagsEditor({
+  selectedTags,
+  tagInput,
+  onTagInputChange,
+  onAdd,
+  onRemove,
+  onKeyDown,
+}: {
+  selectedTags: string[];
+  tagInput: string;
+  onTagInputChange: (v: string) => void;
+  onAdd: () => void;
+  onRemove: (t: string) => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
+}) {
+  return (
+    <div style={styles.ownTagsSection}>
+      <p style={styles.ownTagsLabel}>
+        编辑标签 · Edit Tags ({selectedTags.length}/{MAX_TAGS})
+      </p>
+      {selectedTags.length > 0 && (
+        <div style={styles.tags}>
+          {selectedTags.map((tag) => (
+            <span key={tag} style={styles.tagChipSelected}>
+              {tag}
+              <button
+                type="button"
+                onClick={() => onRemove(tag)}
+                style={styles.tagRemove}
+                title={`移除 ${tag}`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {selectedTags.length < MAX_TAGS && (
+        <div style={styles.tagInputRow}>
+          <input
+            style={styles.tagTextInput}
+            type="text"
+            placeholder="输入标签… · Add a tag..."
+            value={tagInput}
+            onChange={(e) => onTagInputChange(e.target.value.slice(0, MAX_TAG_LENGTH))}
+            onKeyDown={onKeyDown}
+            maxLength={MAX_TAG_LENGTH}
+          />
+          <button
+            type="button"
+            onClick={onAdd}
+            disabled={!tagInput.trim()}
+            style={{
+              ...styles.tagAddBtn,
+              ...(!tagInput.trim() ? styles.tagAddBtnDisabled : {}),
+            }}
+          >
+            +
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -554,6 +746,73 @@ const styles: Record<string, CSSProperties> = {
     color: "#888",
     fontSize: 13,
   },
+  ownTagsSection: {
+    margin: "0 0 14px",
+  },
+  ownTagsLabel: {
+    margin: "0 0 8px",
+    color: "#888",
+    fontSize: 12,
+    fontWeight: 600,
+  },
+  tagChipSelected: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "4px 8px",
+    borderRadius: 6,
+    background: "rgba(76, 175, 80, 0.15)",
+    border: "1px solid rgba(76, 175, 80, 0.4)",
+    color: "#4caf50",
+    fontSize: 12,
+    fontWeight: 700,
+    overflowWrap: "anywhere",
+  },
+  tagRemove: {
+    background: "none",
+    border: "none",
+    color: "#888",
+    cursor: "pointer",
+    fontSize: 14,
+    lineHeight: "12px",
+    padding: "0 2px",
+    pointerEvents: "auto",
+  },
+  tagInputRow: {
+    display: "flex",
+    gap: 6,
+  },
+  tagTextInput: {
+    flex: 1,
+    minWidth: 0,
+    padding: "6px 10px",
+    fontSize: 13,
+    borderRadius: 6,
+    border: "1px solid rgba(255,255,255,0.16)",
+    background: "rgba(255,255,255,0.08)",
+    color: "#fff",
+    outline: "none",
+    boxSizing: "border-box" as const,
+  },
+  tagAddBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 6,
+    border: "1px solid rgba(76, 175, 80, 0.35)",
+    background: "rgba(76, 175, 80, 0.15)",
+    color: "#4caf50",
+    cursor: "pointer",
+    fontSize: 20,
+    fontWeight: 700,
+    flexShrink: 0,
+    pointerEvents: "auto",
+  },
+  tagAddBtnDisabled: {
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.03)",
+    color: "#444",
+    cursor: "not-allowed",
+  },
   friendCount: {
     margin: "0 0 20px",
     color: "#fff",
@@ -565,6 +824,18 @@ const styles: Record<string, CSSProperties> = {
     gap: 10,
     justifyContent: "center",
     flexWrap: "wrap",
+  },
+  friendError: {
+    width: "100%",
+    margin: "6px 0 0",
+    padding: "6px 10px",
+    borderRadius: 6,
+    background: "rgba(239, 83, 80, 0.12)",
+    border: "1px solid rgba(239, 83, 80, 0.25)",
+    color: "#ffb3b3",
+    fontSize: 12,
+    lineHeight: 1.35,
+    textAlign: "center",
   },
   primaryButton: {
     minWidth: 116,

@@ -33,23 +33,6 @@ const UPDATE_HZ = 5;
 // Terrain colour palette (tileset-local index → colour)
 // ---------------------------------------------------------------------------
 
-const TILE_COLORS: Record<number, number> = {
-  0: 0x4a8c3f, // grass
-  1: 0x5a9c4f, // grass_alt
-  2: 0xc4b078, // path
-  3: 0xb4a068, // path_alt
-  4: 0x3366cc, // water
-  5: 0x777777, // wall
-  6: 0x2d5a1e, // tree
-  7: 0xe8a0b8, // flower_pink
-  8: 0xe8d040, // flower_yel
-  9: 0x8b7352, // bench
-  10: 0x994444, // roof
-  11: 0x3a6c2f, // grass_dark
-};
-
-const DEFAULT_TILE_COLOR = 0x000000;
-
 // ---------------------------------------------------------------------------
 // HUDScene
 // ---------------------------------------------------------------------------
@@ -59,6 +42,9 @@ export class HUDScene extends Phaser.Scene {
   private minimapY = 0;
   private mmW = 160; // computed from map size
   private mmH = 120;
+
+  // Container wrapping all static minimap elements (repositioned on resize)
+  private minimapContainer!: Phaser.GameObjects.Container;
 
   // Dynamic elements (redrawn each update)
   private dynamicGfx!: Phaser.GameObjects.Graphics;
@@ -88,50 +74,44 @@ export class HUDScene extends Phaser.Scene {
     this.mmW = mapW * MINIMAP_SCALE;
     this.mmH = mapH * MINIMAP_SCALE;
 
-    const { width, height } = this.cameras.main;
+    // Container for all static minimap elements (repositioned on resize)
+    this.minimapContainer = this.add.container(0, 0);
+    this.minimapContainer.setDepth(199);
 
-    // Position minimap at bottom-right
-    this.minimapX = width - this.mmW - MARGIN;
-    this.minimapY = height - this.mmH - MARGIN;
+    // --- Minimap background (same image as main map) ---
+    const bg = this.add.image(this.mmW / 2, this.mmH / 2, "campus-background")
+      .setDisplaySize(this.mmW, this.mmH)
+      .setDepth(199);
+    this.minimapContainer.add(bg);
 
-    // --- Static terrain (rendered once) ---
-    this.renderTerrain();
-
-    // --- Border ---
-    this.add
-      .rectangle(
-        this.minimapX + this.mmW / 2,
-        this.minimapY + this.mmH / 2,
-        this.mmW + 2,
-        this.mmH + 2,
-      )
+    // --- Border (in container, local coords) ---
+    const border = this.add
+      .rectangle(this.mmW / 2, this.mmH / 2, this.mmW + 2, this.mmH + 2)
       .setStrokeStyle(1, 0xffffff, 0.35)
       .setFillStyle(0x000000, 0)
       .setDepth(200);
+    this.minimapContainer.add(border);
 
-    // --- Dynamic elements ---
+    // --- Dynamic elements (world coords, not in container) ---
     this.dynamicGfx = this.add.graphics().setDepth(201);
 
-    // --- Label ---
-    this.add
-      .text(this.minimapX + 4, this.minimapY + 2, "M", {
+    // --- Label (add to container) ---
+    const label = this.add
+      .text(4, 2, "M", {
         fontSize: "9px",
         color: "#ffffff",
         fontFamily: "monospace",
       })
       .setAlpha(0.5)
       .setDepth(202);
+    this.minimapContainer.add(label);
 
-    // --- Clickable overlay → jump camera ---
+    // --- Clickable overlay → jump camera (add to container) ---
     const hitZone = this.add
-      .zone(
-        this.minimapX + this.mmW / 2,
-        this.minimapY + this.mmH / 2,
-        this.mmW,
-        this.mmH,
-      )
+      .zone(this.mmW / 2, this.mmH / 2, this.mmW, this.mmH)
       .setInteractive({ useHandCursor: true })
       .setDepth(203);
+    this.minimapContainer.add(hitZone);
 
     hitZone.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       const localX = pointer.x - this.minimapX;
@@ -170,7 +150,19 @@ export class HUDScene extends Phaser.Scene {
 
     hitZone.on("pointerup", resumeFollow);
     hitZone.on("pointerout", resumeFollow);
+
+    // Position the container and handle resize
+    this.repositionMinimap();
+    this.scale.on("resize", this.repositionMinimap, this);
   }
+
+  /** Recalculate minimap position from current camera size. */
+  private repositionMinimap = (): void => {
+    const { width, height } = this.cameras.main;
+    this.minimapX = width - this.mmW - MARGIN;
+    this.minimapY = height - this.mmH - MARGIN;
+    this.minimapContainer.setPosition(this.minimapX, this.minimapY);
+  };
 
   update(time: number): void {
     if (time - this.lastUpdate < 1000 / UPDATE_HZ) return;
@@ -220,54 +212,4 @@ export class HUDScene extends Phaser.Scene {
     }
   }
 
-  // -----------------------------------------------------------------------
-  // Terrain render (one-time)
-  // -----------------------------------------------------------------------
-
-  private renderTerrain(): void {
-    const map = this.tileMapManager?.map;
-    if (!map) {
-      this.add
-        .rectangle(
-          this.minimapX + this.mmW / 2,
-          this.minimapY + this.mmH / 2,
-          this.mmW,
-          this.mmH,
-          0x111122,
-          0.85,
-        )
-        .setDepth(199);
-      return;
-    }
-
-    const groundLayer = map.getLayer("ground");
-    if (!groundLayer?.data) return;
-
-    const mapW = map.width;
-    const mapH = map.height;
-
-    const terrainGfx = this.add.graphics();
-    terrainGfx.setDepth(199);
-
-    // Background
-    terrainGfx.fillStyle(0x111122, 0.85);
-    terrainGfx.fillRect(this.minimapX, this.minimapY, this.mmW, this.mmH);
-
-    // Each tile → MINIMAP_SCALE × MINIMAP_SCALE pixels
-    for (let ty = 0; ty < mapH; ty++) {
-      for (let tx = 0; tx < mapW; tx++) {
-        const tile = groundLayer.data[ty]?.[tx];
-        if (!tile || tile.index === -1) continue;
-
-        const color = TILE_COLORS[tile.index] ?? DEFAULT_TILE_COLOR;
-        terrainGfx.fillStyle(color, 0.85);
-        terrainGfx.fillRect(
-          this.minimapX + tx * MINIMAP_SCALE,
-          this.minimapY + ty * MINIMAP_SCALE,
-          MINIMAP_SCALE,
-          MINIMAP_SCALE,
-        );
-      }
-    }
-  }
 }

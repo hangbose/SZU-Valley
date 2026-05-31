@@ -63,9 +63,7 @@ export function App() {
       {/* React UI overlay (positioned absolutely on top of canvas) */}
       <div style={styles.overlay}>
         <HUD />
-        <div style={styles.sidebar}>
-          <FriendsList />
-        </div>
+        <FriendsList />
         <ChatPanel />
         <ProfileCard />
         <NPCDialogue />
@@ -95,13 +93,5 @@ const styles: Record<string, React.CSSProperties> = {
     position: "absolute",
     inset: 0,
     pointerEvents: "none", // allow clicks to pass through to Phaser canvas
-  },
-  sidebar: {
-    position: "absolute",
-    right: 0,
-    top: 48,
-    bottom: 0,
-    width: 200,
-    pointerEvents: "none",
   },
 };

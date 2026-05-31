@@ -24,13 +24,31 @@ import { useGameStore } from "@/ui/store/gameStore";
 // ---------------------------------------------------------------------------
 
 /** Max characters shown in a chat bubble before truncation. */
-const BUBBLE_MAX_CHARS = 20;
+const BUBBLE_MAX_CHARS = 24;
 
 /** How long the bubble stays visible (ms). */
 const BUBBLE_DURATION = 30_000;
 
 /** When to start the fade-out (ms before removal). */
 const BUBBLE_FADE_START = 2000;
+
+/** Text size inside the chat bubble (world px). Large to stay crisp at 0.2x zoom. */
+const BUBBLE_FONT_SIZE = "52px";
+
+/** Horizontal padding inside the bubble (world px). */
+const BUBBLE_PAD_X = 40;
+
+/** Vertical padding inside the bubble (world px). */
+const BUBBLE_PAD_Y = 32;
+
+/** Minimum bubble background scale (prevents tiny bubbles for 1-char messages). */
+const BUBBLE_MIN_SCALE = 0.18;
+
+/** Max line width before word-wrap kicks in (world px, ~23 chars at 52px mono). */
+const BUBBLE_MAX_LINE_W = 600;
+
+/** Vertical offset of the bubble above the entity (world px). */
+const BUBBLE_OFFSET_Y = -36;
 
 interface BubbleData {
   container: Phaser.GameObjects.Container;
@@ -151,7 +169,7 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     // --- 1. Tilemap ---
     this.tileMapManager = new TileMapManager(this);
-    const collisionLayer = this.tileMapManager.load(MAP_KEY, TILESET_KEY, {
+    this.tileMapManager.load(MAP_KEY, TILESET_KEY, {
       debugCollision: false,
       renderVisualLayers: false,
     });
@@ -175,14 +193,14 @@ export class GameScene extends Phaser.Scene {
 
     this.localPlayer = new LocalPlayer(this);
     this.localPlayer.spawn(spawnTileX, spawnTileY, store.playerAvatar || "");
-    this.physics.add.collider(this.localPlayer.sprite, collisionLayer);
 
     // --- 3. Camera ---
     this.cameras.main.startFollow(this.localPlayer.sprite, true, 0.1, 0.1);
-    this.cameras.main.setZoom(0.2); // show more of the map by default
+    this.cameras.main.setZoom(0.35);
 
     // --- 3b. Scroll-wheel zoom ---
     this.setupZoom();
+
 
     // --- 4. Seed test NPCs (fallback — replaced when server sends zone.npcs) ---
     this.seedTestNpcs();
@@ -217,14 +235,18 @@ export class GameScene extends Phaser.Scene {
         if (entity.x === tileX && entity.y === tileY) return;
       }
 
-      // Don't walk onto non-walkable tiles
-      if (!this.tileMapManager.isWalkable(tileX, tileY)) return;
-
       // Go!
       this.localPlayer.walkTo(tileX, tileY);
 
       // Visual feedback: a brief ripple dot at the target
       this.showTapFeedback(worldPoint.x, worldPoint.y);
+
+      // Build mode: log tile coords to console
+      console.log(
+        `%c📍 tile (${tileX}, ${tileY}) %c→ pixel (${tileX*32}, ${tileY*32})`,
+        "color:#4caf50;font-weight:bold",
+        "color:#888",
+      );
     });
 
     // --- 7. Bridge events ---
@@ -672,19 +694,27 @@ export class GameScene extends Phaser.Scene {
       ? text.slice(0, BUBBLE_MAX_CHARS) + "…"
       : text;
 
-    const scale = 0.4;
-    const bg = this.add.sprite(0, 0, "ui-bubble")
-      .setOrigin(0.5, 0.5)
-      .setScale(scale);
-
-    const label = this.add.text(0, -2, truncated, {
-      fontSize: "36px",
+    // Create text (word-wrap at max line width), then measure to size the background
+    const label = this.add.text(0, 0, truncated, {
+      fontSize: BUBBLE_FONT_SIZE,
       color: "#2b2b32",
       fontFamily: "monospace",
-      wordWrap: { width: bg.displayWidth - 18 },
+      wordWrap: { width: BUBBLE_MAX_LINE_W },
     }).setOrigin(0.5, 0.5);
 
-    const container = this.add.container(worldX, worldY - 26, [bg, label]);
+    // Auto-scale background to fit text + generous padding
+    const tex = this.textures.get("ui-bubble");
+    const texW = tex.getSourceImage().width;
+    const texH = tex.getSourceImage().height;
+    const scaleX = (label.width + BUBBLE_PAD_X) / texW;
+    const scaleY = (label.height + BUBBLE_PAD_Y) / texH;
+    const bubbleScale = Math.max(scaleX, scaleY, BUBBLE_MIN_SCALE);
+
+    const bg = this.add.sprite(0, 0, "ui-bubble")
+      .setOrigin(0.5, 0.5)
+      .setScale(bubbleScale);
+
+    const container = this.add.container(worldX, worldY + BUBBLE_OFFSET_Y, [bg, label]);
     container.setDepth(95);
 
     if (onClick) {
@@ -729,7 +759,7 @@ export class GameScene extends Phaser.Scene {
 
       // Follow entity
       const px = this.getEntityPixelXY(key);
-      bubble.container.setPosition(px.x, px.y - 20);
+      bubble.container.setPosition(px.x, px.y + BUBBLE_OFFSET_Y);
     }
   }
 

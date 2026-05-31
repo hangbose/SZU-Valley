@@ -34,7 +34,7 @@ export function handleFriendRequest(
 
   // 0. 空值保护 · Null guard
   if (!data || typeof data.to !== "string") {
-    socket.emit("error", {
+    socket.emit("friend.error", {
       code: "PLAYER_NOT_FOUND",
       message: "请指定要添加的玩家",
     });
@@ -44,7 +44,7 @@ export function handleFriendRequest(
   // 1. 找发送者 · Find the sender
   const senderId = zoneManager.getPlayerIdBySocket(socket.id);
   if (!senderId) {
-    socket.emit("error", {
+    socket.emit("friend.error", {
       code: "PLAYER_NOT_FOUND",
       message: "你还未加入游戏",
     });
@@ -53,7 +53,7 @@ export function handleFriendRequest(
 
   const sender = zoneManager.getPlayer(senderId);
   if (!sender) {
-    socket.emit("error", {
+    socket.emit("friend.error", {
       code: "PLAYER_NOT_FOUND",
       message: "找不到你的角色信息",
     });
@@ -63,7 +63,7 @@ export function handleFriendRequest(
   // 2. 检查目标存在 · Check target exists
   const target = zoneManager.getPlayer(data.to);
   if (!target) {
-    socket.emit("error", {
+    socket.emit("friend.error", {
       code: "PLAYER_NOT_FOUND",
       message: "找不到该玩家",
     });
@@ -76,7 +76,7 @@ export function handleFriendRequest(
   // 清理过期记录 · Clean expired entries
   const recent = timestamps.filter((t) => t > oneMinuteAgo);
   if (recent.length >= FRIEND_RATE_LIMIT) {
-    socket.emit("error", {
+    socket.emit("friend.error", {
       code: "RATE_LIMITED",
       message: "好友请求太频繁了，等一下再试",
     });
@@ -90,7 +90,7 @@ export function handleFriendRequest(
   const targetPos = zoneManager.getPlayerPosition(data.to);
 
   if (!senderPos || !targetPos) {
-    socket.emit("error", {
+    socket.emit("friend.error", {
       code: "OUT_OF_RANGE",
       message: "无法获取位置信息",
     });
@@ -102,7 +102,7 @@ export function handleFriendRequest(
     Math.abs(senderPos.y - targetPos.y);
 
   if (dist > INTERACTION_RANGE) {
-    socket.emit("error", {
+    socket.emit("friend.error", {
       code: "OUT_OF_RANGE",
       message: "离太远了，走近一点再加好友吧",
     });
@@ -112,7 +112,7 @@ export function handleFriendRequest(
   // 5. 业务校验 · Business validation
   const check = canSendRequest(senderId, data.to, store);
   if (!check.ok) {
-    socket.emit("error", {
+    socket.emit("friend.error", {
       code: "ALREADY_FRIENDS",
       message: check.reason ?? "无法发送好友请求",
     });
@@ -122,7 +122,10 @@ export function handleFriendRequest(
   // 6. 创建请求 · Create the request
   createRequest(senderId, data.to, store);
 
-  // 7. 通知目标 · Notify the target
+  // 7. 确认发送方 · Confirm to sender
+  socket.emit("friend.sent", { to: data.to });
+
+  // 8. 通知目标 · Notify the target
   const targetSocket = zoneManager.getPlayerSocket(data.to);
   if (targetSocket) {
     targetSocket.emit("friend.requested", {

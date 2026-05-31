@@ -82,6 +82,14 @@ export interface GameState {
   // --- Profile card (which player's profile is currently open) ---
   profileTarget: string | null;
   setProfileTarget: (id: string | null) => void;
+
+  // --- Own tags (set on join, editable in profile) ---
+  ownTags: string[];
+  setOwnTags: (tags: string[]) => void;
+
+  // --- Resolved player names (populated by profile.view, chat.receive, etc.) ---
+  peerNames: Record<string, string>;
+  setPeerName: (id: string, name: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,4 +163,13 @@ export const useGameStore = create<GameState>((set) => ({
   // Profile
   profileTarget: null,
   setProfileTarget: (id) => set({ profileTarget: id }),
+
+  // Own tags
+  ownTags: [],
+  setOwnTags: (tags) => set({ ownTags: tags }),
+
+  // Resolved peer names
+  peerNames: {},
+  setPeerName: (id, name) =>
+    set((s) => ({ peerNames: { ...s.peerNames, [id]: name } })),
 }));

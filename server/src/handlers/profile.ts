@@ -5,11 +5,18 @@
 // 处理 profile.view 事件——查看附近玩家公开资料。
 // Handles profile.view — view a nearby player's public profile.
 // tags 和 friendsCount 从 store 读取真实数据，isOnline 从 ZoneManager 获取。
+//
+// 同时处理 profile.update 事件——玩家更新自己的标签。
+// Also handles profile.update — player updates their own tags.
 
 import type { Socket } from "socket.io";
 import type { ZoneManager } from "../zone-manager.js";
 import type { DataStore } from "../db/store.js";
 import { INTERACTION_RANGE } from "../types.js";
+
+/** 标签限制 · Tag limits */
+const MAX_TAGS = 10;
+const MAX_TAG_LENGTH = 24;
 
 /**
  * 处理 profile.view 事件 · Handle profile.view event.
@@ -107,4 +114,44 @@ export function handleProfileView(
     friendsCount: profile?.friendsCount ?? 0,
     isOnline: true,
   });
+}
+
+/**
+ * 处理 profile.update 事件 · Handle profile.update event.
+ *
+ * 玩家只能更新自己的标签，且标签必须是预设值之一。
+ * Players can only update their own tags, from the preset list.
+ */
+export function handleProfileUpdate(
+  socket: Socket,
+  data: { tags?: string[] },
+  zoneManager: ZoneManager,
+  store: DataStore
+): void {
+  const playerId = zoneManager.getPlayerIdBySocket(socket.id);
+  if (!playerId) {
+    socket.emit("error", {
+      code: "PLAYER_NOT_FOUND",
+      message: "你还未加入游戏",
+    });
+    return;
+  }
+
+  const rawTags = Array.isArray(data?.tags) ? data.tags : [];
+
+  // Clean: trim, remove empty, deduplicate, enforce limits
+  const tags = [...new Set(
+    rawTags
+      .map((t: unknown) => (typeof t === "string" ? t.trim() : ""))
+      .filter((t: string) => t.length > 0 && t.length <= MAX_TAG_LENGTH)
+  )].slice(0, MAX_TAGS);
+
+  store.setTags(playerId, tags);
+
+  // Confirm back to the player so the UI stays in sync
+  socket.emit("profile.updated", { tags: tags });
+
+  console.log(
+    `[profile] ${playerId} updated tags → [${tags.join(", ")}]`
+  );
 }

@@ -33,6 +33,8 @@ function ActiveChatPanel({ activeChatId }: { activeChatId: string }) {
   const playerId = useGameStore((s) => s.playerId);
   const playerName = useGameStore((s) => s.playerName);
   const friends = useGameStore((s) => s.friends);
+  const peerNames = useGameStore((s) => s.peerNames);
+  const setPeerName = useGameStore((s) => s.setPeerName);
   const messages = useGameStore((s) => s.chatMessages[activeChatId] ?? EMPTY_MESSAGES);
   const addMessage = useGameStore((s) => s.addMessage);
   const setMessages = useGameStore((s) => s.setMessages);
@@ -47,10 +49,11 @@ function ActiveChatPanel({ activeChatId }: { activeChatId: string }) {
   const targetName = useMemo(() => {
     const friend = friends.find((f) => f.id === activeChatId);
     const namedMessage = messages.find((m) => !m.isOwn && m.fromName.trim().length > 0);
+    const cachedName = peerNames[activeChatId];
     const shortId = activeChatId.slice(0, 8);
 
-    return friend?.name ?? namedMessage?.fromName ?? `玩家 ${shortId} · Player ${shortId}`;
-  }, [activeChatId, friends, messages]);
+    return friend?.name ?? namedMessage?.fromName ?? cachedName ?? `玩家 ${shortId} · Player ${shortId}`;
+  }, [activeChatId, friends, messages, peerNames]);
 
   const sendDisabled = !draft.trim() || !playerId;
 
@@ -150,6 +153,10 @@ function ActiveChatPanel({ activeChatId }: { activeChatId: string }) {
     const handleReceive = (payload: unknown) => {
       const message = coerceChatMessage(payload);
       if (!message || !matchesConversation(message, activeChatId, playerId)) return;
+      // Cache the sender's name so non-friend chat panels can resolve it
+      if (message.from !== playerId && message.fromName) {
+        setPeerName(message.from, message.fromName);
+      }
       addMessage(activeChatId, toStoreMessage(message, playerId));
     };
 

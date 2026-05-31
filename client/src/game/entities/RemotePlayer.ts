@@ -16,35 +16,30 @@ import { bridge } from "@/network/bridge";
 // Tunables
 // ---------------------------------------------------------------------------
 
-/** Size of the placeholder sprite (matches LocalPlayer). */
-const SPRITE_W = 24;
-const SPRITE_H = 32;
-
 /** Smoothing time constant for position interpolation (ms). Lower = snappier. */
 const SMOOTH_TIME = 100;
 
-// ---------------------------------------------------------------------------
-// Placeholder texture (generated once, reused for all remote players)
-// ---------------------------------------------------------------------------
+/** Name tag text size (world px). Large to stay crisp at ~0.2x zoom. */
+const NAMETAG_FONT_SIZE = "60px";
 
-let textureGenerated = false;
+/** Horizontal padding inside the name-tag background (world px). */
+const NAMETAG_PAD_X = 40;
 
-function ensureTexture(scene: Phaser.Scene): void {
-  if (textureGenerated) return;
+/** Vertical padding inside the name-tag background (world px). */
+const NAMETAG_PAD_Y = 32;
 
-  const gfx = scene.add.graphics();
-  // Body — orange to distinguish from local player
-  gfx.fillStyle(0xff8c00, 1);
-  gfx.fillRect(0, 0, SPRITE_W, SPRITE_H);
-  // Eyes
-  gfx.fillStyle(0x000000, 0.6);
-  gfx.fillRect(SPRITE_W - 6, 4, 3, 3);
-  gfx.fillRect(SPRITE_W - 6, SPRITE_H - 10, 3, 3);
+/** Vertical offset of the name tag above the sprite (world px). */
+const NAMETAG_OFFSET_Y = -28;
 
-  gfx.generateTexture("__remote_placeholder", SPRITE_W, SPRITE_H);
-  gfx.destroy();
-  textureGenerated = true;
-}
+/** Tint colours for avatars that don't have their own spritesheet yet. */
+const AVATAR_FALLBACK_TINTS: Record<string, number> = {
+  avatar_03: 0xff8888,
+  avatar_04: 0x88ff88,
+  avatar_05: 0x8888ff,
+  avatar_06: 0xffff88,
+  avatar_07: 0xff88ff,
+  avatar_08: 0x88ffff,
+};
 
 // ---------------------------------------------------------------------------
 // RemotePlayer
@@ -65,7 +60,7 @@ export class RemotePlayer {
     scene: Phaser.Scene,
     id: string,
     name: string,
-    _avatar: string,
+    avatar: string,
     x: number,
     y: number,
   ) {
@@ -74,17 +69,22 @@ export class RemotePlayer {
     this.targetX = x;
     this.targetY = y;
 
-    ensureTexture(scene);
-
     const px = x * 32 + 16;
     const py = y * 32 + 16;
 
-    // Sprite
+    // Use the player's chosen avatar texture, fall back to avatar_02
+    const textureKey = scene.textures.exists(avatar) ? avatar : "avatar_02";
     this.sprite = scene.add
-      .sprite(px, py, "__remote_placeholder")
-      .setOrigin(0.5, 0.5)
+      .sprite(px, py, textureKey, 0)
+      .setOrigin(0.5, 0.75)
+      .setScale(0.25)
       .setDepth(9)
       .setInteractive({ useHandCursor: true });
+
+    // Apply tint for fallback avatars so they look visually distinct
+    if (!scene.textures.exists(avatar)) {
+      this.sprite.setTint(AVATAR_FALLBACK_TINTS[avatar] ?? 0xffffff);
+    }
 
     // Click → view profile
     this.sprite.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
@@ -96,14 +96,19 @@ export class RemotePlayer {
     });
 
     // Name tag (PNG bg behind, text on top — bg scales to fit text)
-    this.nameTag = scene.add.text(px, py - 20, name, {
-      fontSize: "35px", color: "#2b2b32", fontFamily: "monospace",
+    const nameTagY = py + NAMETAG_OFFSET_Y;
+    this.nameTag = scene.add.text(px, nameTagY, name, {
+      fontSize: NAMETAG_FONT_SIZE, color: "#2b2b32", fontFamily: "monospace",
     }).setOrigin(0.5, 0.5).setDepth(20);
 
-    const padX = 12;
-    const texW = scene.textures.get("ui-nametag").getSourceImage().width;
-    const tagScale = Math.max(0.1, (this.nameTag.width + padX) / texW);
-    this.nameTagBg = scene.add.sprite(px, py - 20, "ui-nametag")
+    const tex = scene.textures.get("ui-nametag");
+    const texW = tex.getSourceImage().width;
+    const texH = tex.getSourceImage().height;
+    // Scale to fit BOTH text width and height — use max so bg fully covers text
+    const scaleX = (this.nameTag.width + NAMETAG_PAD_X) / texW;
+    const scaleY = (this.nameTag.height + NAMETAG_PAD_Y) / texH;
+    const tagScale = Math.max(scaleX, scaleY, 0.08);
+    this.nameTagBg = scene.add.sprite(px, nameTagY, "ui-nametag")
       .setOrigin(0.5, 0.5).setScale(tagScale).setDepth(11);
   }
 
@@ -137,8 +142,9 @@ export class RemotePlayer {
     this.sprite.y = currentY + (desiredY - currentY) * factor;
 
     // Name tag follows sprite
-    this.nameTagBg.setPosition(this.sprite.x, this.sprite.y - 20);
-    this.nameTag.setPosition(this.sprite.x, this.sprite.y - 20);
+    const tagY = this.sprite.y + NAMETAG_OFFSET_Y;
+    this.nameTagBg.setPosition(this.sprite.x, tagY);
+    this.nameTag.setPosition(this.sprite.x, tagY);
   }
 
   // -----------------------------------------------------------------------

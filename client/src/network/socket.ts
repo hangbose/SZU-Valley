@@ -12,7 +12,10 @@ import { useGameStore } from "@/ui/store/gameStore";
 // Config
 // ---------------------------------------------------------------------------
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? "http://localhost:3001";
+// In production, "" = same origin (nginx serves static + proxies Socket.IO).
+// In dev, connect to local server on :3001.
+// Override with VITE_SERVER_URL env var if needed.
+const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? (import.meta.env.PROD ? "" : "http://localhost:3001");
 
 // ---------------------------------------------------------------------------
 // Singleton socket
@@ -87,6 +90,10 @@ function wireConnectionEvents(s: Socket): void {
   }) => {
     if (!zoneBuffer) zoneBuffer = { players: [], npcs: [] };
     zoneBuffer.players = data?.players ?? [];
+    // Cache peer names for ChatPanel resolution
+    for (const p of data?.players ?? []) {
+      if (p.name) useGameStore.getState().setPeerName(p.id, p.name);
+    }
   });
 
   s.on("zone.npcs", (data: {
@@ -94,5 +101,19 @@ function wireConnectionEvents(s: Socket): void {
   }) => {
     if (!zoneBuffer) zoneBuffer = { players: [], npcs: [] };
     zoneBuffer.npcs = data?.npcs ?? [];
+  });
+
+  // Cache peer names from incoming chat messages (for global name resolution)
+  s.on("chat.receive", (data: { from?: string; fromName?: string }) => {
+    if (data?.from && data?.fromName) {
+      useGameStore.getState().setPeerName(data.from, data.fromName);
+    }
+  });
+
+  // Cache peer name when someone new appears in zone
+  s.on("player.appeared", (data: { id?: string; name?: string }) => {
+    if (data?.id && data?.name) {
+      useGameStore.getState().setPeerName(data.id, data.name);
+    }
   });
 }

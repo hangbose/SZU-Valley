@@ -19,7 +19,7 @@ import { handleNPCTalk, loadNPCs, loadNPCDialogues } from "./handlers/npc.js";
 // ---- A2 模块导入 · A2 Module Imports ----
 import { DataStore } from "./db/store.js";
 import { handleJoin } from "./handlers/join.js";
-import { handleProfileView } from "./handlers/profile.js";
+import { handleProfileView, handleProfileUpdate } from "./handlers/profile.js";
 import { handleChatSend, handleChatHistory } from "./handlers/chat.js";
 import {
   handleFriendRequest,
@@ -34,10 +34,20 @@ import { REQUEST_CLEANUP_AGE_MS } from "./types.js";
 
 const PORT = parseInt(process.env.PORT || "3001");
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const DATABASE_URL = process.env.DATABASE_URL || "";
 
 // ---- 初始化模块 · Initialize Modules ----
 
-const httpServer = createServer();
+const httpServer = createServer((req, res) => {
+  // Health check endpoint (used by Railway / load balancers)
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok", online: zoneManager.getOnlineCount() }));
+    return;
+  }
+  // All other HTTP traffic is handled by Socket.IO
+  // (nginx serves static files directly in production)
+});
 const io = new Server(httpServer, {
   cors: { origin: "*" },
   pingInterval: 10000,
@@ -47,7 +57,23 @@ const io = new Server(httpServer, {
 const redis = new RedisClient(REDIS_URL);
 const zoneManager = new ZoneManager();
 const connectionGuard = new ConnectionGuard(redis, zoneManager);
-const store = new DataStore(); // A2 数据存储 · Data store
+
+// A2 数据存储 — 有 PG 时自动持久化，无 PG 则纯内存
+let store: DataStore;
+if (DATABASE_URL) {
+  const { Pool } = await import("pg");
+  const pgPool = new Pool({
+    connectionString: DATABASE_URL,
+    max: 10,
+    idleTimeoutMillis: 30_000,
+  });
+  pgPool.on("error", (err) => console.error("[pg] Pool error:", err.message));
+  store = new DataStore(pgPool);
+  console.log("[store] PostgreSQL enabled:", DATABASE_URL.replace(/\/\/.*@/, "//***@"));
+} else {
+  store = new DataStore();
+  console.log("[store] In-memory only (no DATABASE_URL)");
+}
 
 // 加载 NPC 数据 · Load NPC data on startup
 const npcs = loadNPCs();
@@ -96,6 +122,13 @@ io.on("connection", (socket) => {
 
   socket.on("chat.history", (data: { with: string; before?: number }) => {
     handleChatHistory(socket, data, zoneManager, store);
+  });
+
+  // ============================================================
+  // PROFILE UPDATE · 更新个人资料 (A2 handler)
+  // ============================================================
+  socket.on("profile.update", (data: { tags?: string[] }) => {
+    handleProfileUpdate(socket, data, zoneManager, store);
   });
 
   // ============================================================

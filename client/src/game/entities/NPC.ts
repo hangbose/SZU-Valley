@@ -13,33 +13,20 @@ import Phaser from "phaser";
 import { bridge } from "@/network/bridge";
 
 // ---------------------------------------------------------------------------
-// Placeholder texture (generated once, reused for all NPCs)
+// Tunables
 // ---------------------------------------------------------------------------
 
-const TEX_W = 24;
-const TEX_H = 32;
+/** Name tag text size (world px). Large to stay crisp at ~0.2x zoom. */
+const NAMETAG_FONT_SIZE = "60px";
 
-let textureGenerated = false;
+/** Horizontal padding inside the name-tag background (world px). */
+const NAMETAG_PAD_X = 40;
 
-function ensureNpcTexture(scene: Phaser.Scene): void {
-  if (textureGenerated) return;
+/** Vertical padding inside the name-tag background (world px). */
+const NAMETAG_PAD_Y = 32;
 
-  const gfx = scene.add.graphics();
-  // Body
-  gfx.fillStyle(0x4488ff, 1);
-  gfx.fillRect(0, 0, TEX_W, TEX_H);
-  // Head (slightly different shade)
-  gfx.fillStyle(0x5599ff, 1);
-  gfx.fillRect(2, 0, TEX_W - 4, 6);
-  // Eyes
-  gfx.fillStyle(0xffffff, 0.7);
-  gfx.fillRect(TEX_W - 7, 2, 2, 2);
-  gfx.fillRect(TEX_W - 7, TEX_H - 10, 2, 2);
-
-  gfx.generateTexture("__npc_placeholder", TEX_W, TEX_H);
-  gfx.destroy();
-  textureGenerated = true;
-}
+/** Vertical offset of the name tag above the sprite (world px). */
+const NAMETAG_OFFSET_Y = -28;
 
 // ---------------------------------------------------------------------------
 // NPC
@@ -54,7 +41,7 @@ export class NPC {
     scene: Phaser.Scene,
     id: string,
     name: string,
-    _avatar: string,
+    avatar: string,
     x: number,
     y: number,
     _description: string,
@@ -62,16 +49,16 @@ export class NPC {
     this.id = id;
     this.name = name;
 
-    ensureNpcTexture(scene);
-
     const px = x * 32 + 16;
     const py = y * 32 + 16;
 
-    // --- Visible sprite (clickable) ---
+    // Use NPC's avatar texture, fall back to avatar_02
+    const textureKey = scene.textures.exists(avatar) ? avatar : "avatar_02";
     this.sprite = scene.add
-      .sprite(px, py, "__npc_placeholder")
+      .sprite(px, py, textureKey, 0)
       .setInteractive({ useHandCursor: true })
-      .setOrigin(0.5, 0.5);
+      .setOrigin(0.5, 0.75)
+      .setScale(0.25);
 
     // --- Pointer / touch → emit bridge event ---
     this.sprite.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
@@ -84,17 +71,21 @@ export class NPC {
     });
 
     // --- Name tag (PNG bg behind, text on top — bg scales to fit text) ---
-    const npcText = scene.add.text(px, py - 16, name, {
-      fontSize: "35px", color: "#2b2b32", fontFamily: "monospace",
+    const tagY = py + NAMETAG_OFFSET_Y;
+    const npcText = scene.add.text(px, tagY, name, {
+      fontSize: NAMETAG_FONT_SIZE, color: "#2b2b32", fontFamily: "monospace",
     }).setOrigin(0.5, 0.5).setDepth(20);
 
-    const padX = 12;
-    const texW = scene.textures.get("ui-nametag").getSourceImage().width;
-    const tagScale = Math.max(0.1, (npcText.width + padX) / texW);
-    scene.add.sprite(px, py - 16, "ui-nametag")
+    const tex = scene.textures.get("ui-nametag");
+    const texW = tex.getSourceImage().width;
+    const texH = tex.getSourceImage().height;
+    // Scale to fit BOTH text width and height — use max so bg fully covers text
+    const scaleX = (npcText.width + NAMETAG_PAD_X) / texW;
+    const scaleY = (npcText.height + NAMETAG_PAD_Y) / texH;
+    const tagScale = Math.max(scaleX, scaleY, 0.08);
+    scene.add.sprite(px, tagY, "ui-nametag")
       .setOrigin(0.5, 0.5).setScale(tagScale).setDepth(11);
 
-    void _avatar;
     void _description;
   }
 

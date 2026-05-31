@@ -117,22 +117,46 @@ export async function handleJoin(
       store.createPlayer(playerId, name, avatar);
     }
 
+    // 6b. 保存标签（自由文本，去重去空）· Save tags (free text, dedupe + trim)
+    if (Array.isArray(data.tags)) {
+      const cleanTags = [...new Set(
+        data.tags.map((t: string) => (t ?? "").trim()).filter((t: string) => t.length > 0)
+      )].slice(0, 10); // 最多 10 个标签
+      if (cleanTags.length > 0) {
+        store.setTags(playerId, cleanTags);
+      }
+    }
+
     // 7. 更新 Redis (A1) · Update Redis
     await redis.addOnlinePlayer(playerId);
     await redis.setPosition(playerId, spawn.x, spawn.y);
 
-    // 8. 发送加入确认（只发给加入者自己）
+    // 8. 构建好友列表（含在线状态，供客户端恢复 UI）
+    const friendIds = store.getFriends(playerId);
+    const friends = friendIds.map((fid) => {
+      const profile = store.getPlayer(fid);
+      const online = zoneManager.isOnline(fid);
+      return {
+        id: fid,
+        name: profile?.name ?? "?",
+        avatar: profile?.avatar ?? "",
+        isOnline: online,
+      };
+    });
+
+    // 9. 发送加入确认（只发给加入者自己）
     socket.emit("player.joined", {
       playerId,
       spawn: { x: spawn.x, y: spawn.y },
+      friends,
     });
 
-    // 9. 发送区域快照（附近的玩家和 NPC，含 isFriend 信息）
+    // 10. 发送区域快照（附近的玩家和 NPC，含 isFriend 信息）
     const zoneId = getZoneForPosition(spawn.x, spawn.y);
     const neighborZones = getZoneNeighbors(zoneId);
     sendZoneSnapshot(socket, neighborZones, zoneManager, playerId, store, npcs);
 
-    // 10. 广播"新玩家出现"给区域内的其他人
+    // 11. 广播"新玩家出现"给区域内的其他人
     for (const z of neighborZones) {
       socket.to(`zone:${z}`).emit("player.appeared", {
         id: playerId,

@@ -82,7 +82,7 @@ export function FriendsList() {
   };
 
   return (
-    <div style={styles.shell}>
+    <div style={{ ...styles.shell, position: "absolute", right: 0, top: 48, bottom: 0 }}>
       <aside
         aria-label="好友列表 · Friends list"
         style={{
@@ -193,9 +193,9 @@ function SkeletonRows({ isBright }: { isBright: boolean }) {
 const styles: Record<string, React.CSSProperties> = {
   shell: {
     position: "relative",
-    width: SIDEBAR_WIDTH,
     height: "100%",
     pointerEvents: "none",
+    zIndex: 50,
   },
   sidebar: {
     position: "absolute",

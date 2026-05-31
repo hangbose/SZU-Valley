@@ -19,45 +19,21 @@ import type { Direction } from "@/game/input/KeyboardController";
 /** Movement speed in pixels per second. 160 ≈ 5 tiles/s. */
 const SPEED = 160;
 
-/** Placeholder sprite size (pixels). Fits within one 32×32 tile. */
-const SPRITE_W = 24;
-const SPRITE_H = 32;
-
 /** How often to emit `position-changed` via the bridge (ms). */
 const POSITION_EMIT_INTERVAL = 100;
 
 /** Distance threshold for considering a walk target "reached" (px). */
 const WALK_ARRIVE_THRESHOLD = 6;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Direction → tint colour for the placeholder rectangle. */
-const DIRECTION_TINTS: Record<Direction, number> = {
-  down: 0xe53935, // red
-  up: 0x43a047, // green
-  left: 0x1e88e5, // blue
-  right: 0xfb8c00, // orange
+/** Tint colours for avatars that don't have their own spritesheet yet. */
+const AVATAR_FALLBACK_TINTS: Record<string, number> = {
+  avatar_03: 0xff8888,
+  avatar_04: 0x88ff88,
+  avatar_05: 0x8888ff,
+  avatar_06: 0xffff88,
+  avatar_07: 0xff88ff,
+  avatar_08: 0x88ffff,
 };
-
-let textureGenerated = false;
-
-function ensurePlaceholderTexture(scene: Phaser.Scene): void {
-  if (textureGenerated) return;
-
-  const gfx = scene.add.graphics();
-  gfx.fillStyle(0xffffff, 1);
-  gfx.fillRect(0, 0, SPRITE_W, SPRITE_H);
-  // Small "eyes" so the direction is visible even without animation
-  gfx.fillStyle(0x000000, 0.6);
-  gfx.fillRect(SPRITE_W - 6, 4, 3, 3);
-  gfx.fillRect(SPRITE_W - 6, SPRITE_H - 10, 3, 3);
-  gfx.generateTexture("__player_placeholder", SPRITE_W, SPRITE_H);
-  gfx.destroy();
-
-  textureGenerated = true;
-}
 
 // ---------------------------------------------------------------------------
 // LocalPlayer
@@ -84,36 +60,59 @@ export class LocalPlayer {
   // -----------------------------------------------------------------------
 
   /**
-   * Create the placeholder sprite at the given spawn position.
+   * Create the sprite at the given spawn position using the selected avatar.
    *
-   * @param tileX  Spawn tile X (map coords).
-   * @param tileY  Spawn tile Y (map coords).
-   * @param _avatar  Avatar key (unused until D delivers spritesheets).
+   * @param tileX   Spawn tile X (map coords).
+   * @param tileY   Spawn tile Y (map coords).
+   * @param avatar  Avatar texture key (avatar_01 … avatar_08).
    */
-  spawn(tileX: number, tileY: number, _avatar: string): void {
-    ensurePlaceholderTexture(this.scene);
-
+  spawn(tileX: number, tileY: number, avatar: string): void {
     const px = tileX * 32 + 16;
     const py = tileY * 32 + 16;
 
-    this.sprite = this.scene.physics.add.sprite(px, py, "__player_placeholder");
-    this.sprite.setOrigin(0.5, 0.5);
-    this.sprite.setTint(DIRECTION_TINTS.down);
+    // Fall back to avatar_01 if the selected texture doesn't exist
+    const textureKey = this.scene.textures.exists(avatar) ? avatar : "avatar_01";
 
-    // Physics body slightly smaller than the sprite for forgiving collisions
-    this.sprite.body!.setSize(SPRITE_W - 4, SPRITE_H - 6);
-    this.sprite.body!.setOffset(2, 4);
+    this.sprite = this.scene.physics.add.sprite(px, py, textureKey, 0);
 
-    // Render above ground, below overhead objects
+    // Apply tint for fallback avatars so they look visually distinct
+    if (!this.scene.textures.exists(avatar)) {
+      this.sprite.setTint(AVATAR_FALLBACK_TINTS[avatar] ?? 0xffffff);
+    }
+    this.sprite.setOrigin(0.5, 0.75); // feet at tile center
+    this.sprite.setScale(0.25);
     this.sprite.setDepth(10);
-
-    // Bounce off world bounds (set by GameScene to map size)
     this.sprite.setCollideWorldBounds(true);
 
-    // Emit initial position so HUD shows zone immediately
-    this.emitPosition();
+    // Setup 4-direction walk animations for this texture
+    this.createAnimations(textureKey);
+  }
 
-    void _avatar;
+  /**
+   * Create walk animations for the given texture.
+   * Assumes a spritesheet where rows 0-3 are walk directions (down/left/right/up).
+   */
+  private createAnimations(textureKey: string): void {
+    const tex = this.scene.textures.get(textureKey);
+    const source = tex.getSourceImage();
+    // Infer grid from the first frame, or assume 32×32 as fallback
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const frameWidth = (tex.frames as any).__BASE?.width ?? 32;
+    const cols = Math.max(1, Math.floor(source.width / frameWidth));
+
+    const directions = ["down", "left", "right", "up"] as const;
+    for (let row = 0; row < 4; row++) {
+      const frames = Array.from({ length: cols }, (_, col) => row * cols + col);
+      const animKey = `player-walk-${directions[row]}-${textureKey}`;
+      // Skip if animation already exists (e.g. from another player)
+      if (this.scene.anims.exists(animKey)) continue;
+      this.scene.anims.create({
+        key: animKey,
+        frames: this.scene.anims.generateFrameNumbers(textureKey, { frames }),
+        frameRate: 12,
+        repeat: -1,
+      });
+    }
   }
 
   /**
@@ -154,12 +153,13 @@ export class LocalPlayer {
         input.dy * SPEED,
       );
       this.direction = input.direction;
-      this.sprite.setTint(DIRECTION_TINTS[this.direction]);
+      this.sprite.play(`player-walk-${this.direction}-${this.sprite.texture.key}`, true);
     } else if (this.targetTileX !== null) {
       // Tap-to-move: walk toward target tile centre
       this.moveTowardTarget();
     } else {
       this.sprite.setVelocity(0, 0);
+      this.sprite.stop(); // idle frame
     }
 
     // Emit tile position at a throttled rate
@@ -180,6 +180,7 @@ export class LocalPlayer {
     if (dist < WALK_ARRIVE_THRESHOLD) {
       // Arrived
       this.sprite.setVelocity(0, 0);
+      this.sprite.stop();
       this.targetTileX = null;
       this.targetTileY = null;
       return;
@@ -190,13 +191,13 @@ export class LocalPlayer {
     const vy = (dy / dist) * SPEED;
     this.sprite.setVelocity(vx, vy);
 
-    // Set direction for tint
+    // Set direction and play walk animation
     if (Math.abs(dy) >= Math.abs(dx)) {
       this.direction = dy < 0 ? "up" : "down";
     } else {
       this.direction = dx < 0 ? "left" : "right";
     }
-    this.sprite.setTint(DIRECTION_TINTS[this.direction]);
+    this.sprite.play(`player-walk-${this.direction}-${this.sprite.texture.key}`, true);
   }
 
   // -----------------------------------------------------------------------

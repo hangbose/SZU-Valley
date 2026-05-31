@@ -94,7 +94,7 @@ export class TileMapManager {
     }
     this.decorationLayer = decorationLayer;
 
-    // --- Layer 3: Collision (invisible, z=999 so it's never rendered) ---
+    // --- Layer 3: Collision (semi-transparent for alignment debugging) ---
     const collisionLayer = map.createLayer(
       "collision",
       tileset,
@@ -104,8 +104,8 @@ export class TileMapManager {
     if (!collisionLayer) {
       throw new Error(`[TileMapManager] Layer "collision" not found.`);
     }
-    collisionLayer.setDepth(999);
-    collisionLayer.setVisible(false);
+    collisionLayer.setDepth(3);
+    collisionLayer.setAlpha(0); // collision visual hidden
 
     // Mark every non-empty tile on the collision layer as colliding
     // Tiled uses 0 = empty, so exclude 0 → everything else blocks

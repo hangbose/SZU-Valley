@@ -71,11 +71,16 @@ export class BootScene extends Phaser.Scene {
     this.load.image("ui-bubble", "assets/ui/chat-bubble.png");
     this.load.image("ui-nametag", "assets/ui/name-tag.png");
 
-    // TODO: load avatar spritesheets and NPC sprites when D delivers them
-    // this.load.spritesheet("avatar_01", "assets/sprites/avatars/avatar_01.png", {
-    //   frameWidth: 32,
-    //   frameHeight: 48,
-    // });
+    // Buildings
+    this.load.image("building-zhyl", "assets/buildings/zhyl.png");
+
+    // Character spritesheets (4×4 grid = 4 directions × 4 walk frames, 144×108 per frame)
+    for (let i = 1; i <= 8; i++) {
+      const key = `avatar_${String(i).padStart(2, "0")}`;
+      this.load.spritesheet(key, `assets/sprites/avatars/${key}.png`, {
+        frameWidth: 144, frameHeight: 108,
+      });
+    }
   }
 
   create(): void {
