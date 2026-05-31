@@ -9,6 +9,10 @@
 // registers all event handlers, wires up all modules.
 
 import { createServer } from "http";
+import type { IncomingMessage, ServerResponse } from "http";
+import { readFile } from "fs/promises";
+import { join, extname, dirname } from "path";
+import { fileURLToPath } from "url";
 import { Server } from "socket.io";
 import { RedisClient } from "./redis.js";
 import { ZoneManager, getZoneForPosition, getZoneNeighbors } from "./zone-manager.js";
@@ -30,6 +34,57 @@ import {
 import type { JoinData } from "./types.js";
 import { REQUEST_CLEANUP_AGE_MS } from "./types.js";
 
+// ---- 静态文件托管 · Static File Serving (single-container mode) ----
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const PUBLIC_DIR = process.env.PUBLIC_DIR || join(__dirname, "..", "public");
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".css":  "text/css; charset=utf-8",
+  ".js":   "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png":  "image/png",
+  ".svg":  "image/svg+xml",
+  ".ico":  "image/x-icon",
+  ".webp": "image/webp",
+  ".gif":  "image/gif",
+  ".mp3":  "audio/mpeg",
+  ".wav":  "audio/wav",
+};
+
+async function serveFile(filePath: string, res: ServerResponse): Promise<boolean> {
+  try {
+    const data = await readFile(filePath);
+    const ext = extname(filePath);
+    res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
+    res.end(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function handleStaticRequest(req: IncomingMessage, res: ServerResponse): void {
+  if (!req.url || req.url.startsWith("/socket.io/")) return;
+
+  const url = req.url === "/" ? "/index.html" : req.url;
+  // 去掉前导 /，否则 path.join 会当成绝对路径
+  const safeUrl = url.replace(/^\//, "");
+  const filePath = join(PUBLIC_DIR, safeUrl);
+
+  serveFile(filePath, res).then((ok) => {
+    if (ok) return;
+    // SPA fallback：所有非文件路径返回 index.html
+    serveFile(join(PUBLIC_DIR, "index.html"), res).then((ok2) => {
+      if (!ok2) {
+        res.writeHead(404).end("Not Found");
+      }
+    });
+  });
+}
+
 // ---- 配置 · Configuration ----
 
 const PORT = parseInt(process.env.PORT || "3001");
@@ -45,8 +100,8 @@ const httpServer = createServer((req, res) => {
     res.end(JSON.stringify({ status: "ok", online: zoneManager.getOnlineCount() }));
     return;
   }
-  // All other HTTP traffic is handled by Socket.IO
-  // (nginx serves static files directly in production)
+  // 静态文件托管（单容器模式，无 Nginx）· Static file serving (single-container mode)
+  handleStaticRequest(req, res);
 });
 const io = new Server(httpServer, {
   cors: { origin: "*" },
